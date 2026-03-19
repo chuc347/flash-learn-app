@@ -66,3 +66,17 @@ export const getCustomCardsFromCloud = async (): Promise<Flashcard[]> => {
   }
   return data as Flashcard[];
 };
+
+export const getCustomCardsCount = async (): Promise<number> => {
+  const { count, error } = await supabase
+    .from('vocabulary')
+    .select('*', { count: 'exact', head: true }) // Chỉ lấy số lượng (count), không lấy dữ liệu
+    .eq('type', 'custom'); // CHỈ LỌC NHỮNG THẺ CUSTOM
+
+  if (error) {
+    console.error('Lỗi khi đếm thẻ:', error.message);
+    return 0;
+  }
+
+  return count || 0;
+};

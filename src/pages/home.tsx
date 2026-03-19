@@ -4,7 +4,7 @@ import { BookOpen, Plus, Shuffle, Trophy } from 'lucide-react';
 import { Link } from 'react-router';
 import { motion } from 'motion/react';
 import { getCustomFlashcards } from '../utils/storage';
-import { getFlashcardsFromCloud } from '../data/vocabulary';
+import { getCustomCardsCount, getFlashcardsFromCloud } from '../data/vocabulary';
 
 export default function Home() {
   // 1. Khai báo State để lưu trữ con số (mặc định là 0)
@@ -15,14 +15,14 @@ export default function Home() {
 // Nhớ import thêm getFlashcardsFromCloud từ ../data/vocabulary nhé
 
   useEffect(() => {
-    const fetchCount = async () => {
-      // Gọi hàm lấy dữ liệu từ Cloud
-      const cloudData = await getFlashcardsFromCloud(1000); // Lấy tối đa 1000 từ để đếm
-      setCustomCount(cloudData.length);
-    };
+  const fetchCount = async () => {
+    // Gọi hàm đếm riêng cho thẻ custom
+    const count = await getCustomCardsCount();
+    setCustomCount(count);
+  };
 
-    fetchCount();
-  }, []); // Cặp ngoặc vuông [] ở cuối rất quan trọng: Nó bảo React "Chỉ chạy hàm này 1 lần duy nhất lúc mới load thôi nhé!"
+  fetchCount();
+}, []); // Cặp ngoặc vuông [] ở cuối rất quan trọng: Nó bảo React "Chỉ chạy hàm này 1 lần duy nhất lúc mới load thôi nhé!"
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 p-6">
       <div className="max-w-md mx-auto pt-12">
