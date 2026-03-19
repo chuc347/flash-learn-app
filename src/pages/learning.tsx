@@ -21,7 +21,7 @@ export default function Learning() {
   const [score, setScore] = useState({ correct: 0, incorrect: 0 });
   const [showEnglish, setShowEnglish] = useState(true);
 
-  // --- 1. useEffect LOAD DỮ LIỆU (Thay cái cũ của em) ---
+// --- 1. useEffect LOAD DỮ LIỆU (Thay cái cũ của em) ---
   useEffect(() => {
     const loadData = async () => {
       if (mode === 'custom') {
@@ -69,20 +69,32 @@ export default function Learning() {
     const correctAnswer = showEnglish ? currentCard.vietnamese : currentCard.english;
     const isCorrect = userAnswer.trim().toLowerCase() === correctAnswer.toLowerCase();
 
+    // 1. TÍNH NHẨM ĐIỂM SỐ MỚI NGAY LẬP TỨC
+    const newScore = {
+      correct: isCorrect ? score.correct + 1 : score.correct,
+      incorrect: !isCorrect ? score.incorrect + 1 : score.incorrect
+    };
+
+    // 2. Cập nhật State để giao diện hiển thị
+    setScore(newScore);
+
     if (isCorrect) {
       setShowFeedback('correct');
-      setScore(prev => ({ ...prev, correct: prev.correct + 1 }));
       
       setTimeout(() => {
-        moveToNext();
+        // 3. Dúi thẳng cái "điểm nhẩm" vào hàm next để chống lỗi trễ nhịp thẻ cuối
+        moveToNext(newScore); 
       }, 1500);
     } else {
       setShowFeedback('incorrect');
-      setScore(prev => ({ ...prev, incorrect: prev.incorrect + 1 }));
     }
   };
 
-  const moveToNext = () => {
+  // 4. Nhận "điểm nhẩm" (nếu có). Tránh lỗi khi nút HTML tự động truyền Event vào.
+  const moveToNext = (latestScore?: any) => {
+    // Kiểm tra an toàn: Nếu latestScore là object chứa điểm thì dùng, nếu không thì dùng score hiện tại của React
+    const finalScore = (latestScore && typeof latestScore.correct === 'number') ? latestScore : score;
+
     if (currentIndex < flashcards.length - 1) {
       setCurrentIndex(prev => prev + 1);
       setUserAnswer('');
@@ -93,7 +105,7 @@ export default function Learning() {
       // Navigate to results
       navigate('/results', { 
         state: { 
-          score,
+          score: finalScore,
           total: flashcards.length 
         } 
       });

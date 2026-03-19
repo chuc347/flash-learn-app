@@ -1,10 +1,10 @@
 // Thêm { useState, useEffect } vào dòng import đầu tiên
 import { useState, useEffect } from 'react';
-import { BookOpen, Plus, Shuffle, Trophy } from 'lucide-react';
 import { Link } from 'react-router';
 import { motion } from 'motion/react';
 import { getCustomFlashcards } from '../utils/storage';
 import { getCustomCardsCount, getFlashcardsFromCloud } from '../data/vocabulary';
+import { BookOpen, Plus, Shuffle, Trophy, Search } from 'lucide-react';
 
 export default function Home() {
   // 1. Khai báo State để lưu trữ con số (mặc định là 0)
@@ -120,6 +120,27 @@ export default function Home() {
               </Link>
             </motion.div>
           )}
+
+          {/* Nút Quản lý thẻ (Manage Cards) MỚI THÊM */}
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.5 }}
+          >
+            <Link to="/manage">
+              <button className="w-full bg-white text-gray-700 rounded-2xl p-6 shadow-sm border-2 border-dashed border-gray-200 hover:border-blue-400 hover:shadow-md transition-all duration-300 active:scale-95">
+                <div className="flex items-center justify-between">
+                  <div className="text-left">
+                    <h3 className="text-lg mb-1 font-medium">Manage Cards</h3>
+                    <p className="text-sm text-gray-500">Review and delete your words</p>
+                  </div>
+                  <div className="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center">
+                    <Search className="w-6 h-6 text-gray-500" />
+                  </div>
+                </div>
+              </button>
+            </Link>
+          </motion.div>
         </div>
 
         {/* Tips */}

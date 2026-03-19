@@ -80,3 +80,15 @@ export const getCustomCardsCount = async (): Promise<number> => {
 
   return count || 0;
 };
+
+// Hàm xóa thẻ dựa trên ID
+export const deleteFlashcardFromCloud = async (id: string) => {
+  const { error } = await supabase
+    .from('vocabulary')
+    .delete()
+    .eq('id', id); // Chỉ xóa đúng cái thẻ có id trùng khớp
+
+  if (error) {
+    throw new Error(error.message);
+  }
+};
