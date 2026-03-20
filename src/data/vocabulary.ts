@@ -92,3 +92,49 @@ export const deleteFlashcardFromCloud = async (id: string) => {
     throw new Error(error.message);
   }
 };
+export const addMultipleFlashcardsToCloud = async (cards: {english: string, vietnamese: string}[]) => {
+  // 1. Tải danh sách TẤT CẢ các từ tiếng Anh đang có trên hệ thống về để đối chiếu
+  const { data: existingCards, error: fetchError } = await supabase
+    .from('vocabulary')
+    .select('english');
+
+  if (fetchError) throw new Error("Lỗi khi kiểm tra từ trùng lặp: " + fetchError.message);
+
+  // Tạo một bộ lọc (Set) chứa các từ đã có. Dùng Set giúp việc tìm kiếm nhanh gấp 100 lần!
+  const existingWords = new Set(existingCards?.map(card => card.english.toLowerCase()) || []);
+
+  // 2. Lọc danh sách từ Excel: Bỏ qua từ ĐÃ CÓ TRÊN MÂY, và bỏ qua cả TỪ TRÙNG NHAU TRONG EXCEL
+  const uniqueNewCards = [];
+  const seenInExcel = new Set();
+
+  for (const card of cards) {
+    // Đảm bảo dữ liệu luôn là chữ (tránh lỗi file Excel chứa số) và viết thường
+    const eng = String(card.english).trim().toLowerCase();
+    const vie = String(card.vietnamese).trim().toLowerCase();
+
+    // Nếu từ này CHƯA có trên đám mây VÀ CHƯA xuất hiện trong quá trình đọc file này
+    if (!existingWords.has(eng) && !seenInExcel.has(eng)) {
+      uniqueNewCards.push({
+        english: eng,
+        vietnamese: vie,
+        type: 'custom'
+      });
+      seenInExcel.add(eng); // Ghi nhớ là đã lấy từ này rồi
+    }
+  }
+
+  // 3. Nếu tất cả các từ trong Excel đều đã có sẵn trong máy -> Trả về số 0
+  if (uniqueNewCards.length === 0) {
+    return 0; 
+  }
+
+  // 4. Nếu có từ mới -> Đẩy phần từ mới đó lên Supabase
+  const { error: insertError } = await supabase
+    .from('vocabulary')
+    .insert(uniqueNewCards);
+
+  if (insertError) throw new Error(insertError.message);
+
+  // Trả về số lượng từ VỪA ĐƯỢC THÊM THÀNH CÔNG
+  return uniqueNewCards.length; 
+};

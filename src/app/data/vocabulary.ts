@@ -70,3 +70,4 @@ export function getRandomFlashcards(count: number = 10): Flashcard[] {
   const shuffled = [...vocabularyDatabase].sort(() => Math.random() - 0.5);
   return shuffled.slice(0, Math.min(count, vocabularyDatabase.length));
 }
+
