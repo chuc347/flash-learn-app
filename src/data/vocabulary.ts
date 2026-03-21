@@ -7,6 +7,7 @@ export interface Flashcard {
   english: string;
   vietnamese: string;
   type?: string;
+  category?: string;
 }
 
 // HÀM MỚI: Lấy dữ liệu thật từ Supabase
@@ -23,25 +24,6 @@ export const getFlashcardsFromCloud = async (limit: number = 10): Promise<Flashc
   }
 
   return data as Flashcard[];
-};
-
-export const addFlashcardToCloud = async (english: string, vietnamese: string) => {
-  // Chỉ dùng duy nhất lệnh .insert để thêm mới dữ liệu
-  const { data, error } = await supabase
-    .from('vocabulary')
-    .insert([
-      { 
-        english: english.toLowerCase(), 
-        vietnamese: vietnamese.toLowerCase(),
-        type: 'custom' 
-      }
-    ]);
-
-  if (error) {
-    throw new Error(error.message);
-  }
-  
-  return data;
 };
 
 // Hàm cũ (tạm thời giữ lại để không lỗi các màn hình khác)
@@ -92,49 +74,105 @@ export const deleteFlashcardFromCloud = async (id: string) => {
     throw new Error(error.message);
   }
 };
-export const addMultipleFlashcardsToCloud = async (cards: {english: string, vietnamese: string}[]) => {
-  // 1. Tải danh sách TẤT CẢ các từ tiếng Anh đang có trên hệ thống về để đối chiếu
+
+// Hàm tạo 1 thẻ (Có thêm tham số category)
+export const addFlashcardToCloud = async (english: string, vietnamese: string, category: string = 'Chung') => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Vui lòng đăng nhập để lưu thẻ!");
+
+  const { error } = await supabase
+    .from('vocabulary')
+    .insert([{
+      english: english.trim().toLowerCase(),
+      vietnamese: vietnamese.trim().toLowerCase(),
+      type: 'custom',
+      user_id: session.user.id,
+      category: category.trim() || 'Chung' // Đẩy tên bộ từ vựng lên Cloud
+    }]);
+
+  if (error) throw new Error(error.message);
+};
+
+// Hàm nhập Excel (Cũng được gắn category cho toàn bộ file Excel)
+export const addMultipleFlashcardsToCloud = async (cards: {english: string, vietnamese: string}[], category: string = 'Chung') => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Vui lòng đăng nhập để lưu thẻ!");
+
   const { data: existingCards, error: fetchError } = await supabase
     .from('vocabulary')
-    .select('english');
+    .select('english')
+    .eq('user_id', session.user.id);
 
-  if (fetchError) throw new Error("Lỗi khi kiểm tra từ trùng lặp: " + fetchError.message);
+  if (fetchError) throw new Error("Lỗi kiểm tra trùng lặp: " + fetchError.message);
 
-  // Tạo một bộ lọc (Set) chứa các từ đã có. Dùng Set giúp việc tìm kiếm nhanh gấp 100 lần!
   const existingWords = new Set(existingCards?.map(card => card.english.toLowerCase()) || []);
-
-  // 2. Lọc danh sách từ Excel: Bỏ qua từ ĐÃ CÓ TRÊN MÂY, và bỏ qua cả TỪ TRÙNG NHAU TRONG EXCEL
   const uniqueNewCards = [];
   const seenInExcel = new Set();
 
   for (const card of cards) {
-    // Đảm bảo dữ liệu luôn là chữ (tránh lỗi file Excel chứa số) và viết thường
     const eng = String(card.english).trim().toLowerCase();
     const vie = String(card.vietnamese).trim().toLowerCase();
 
-    // Nếu từ này CHƯA có trên đám mây VÀ CHƯA xuất hiện trong quá trình đọc file này
     if (!existingWords.has(eng) && !seenInExcel.has(eng)) {
       uniqueNewCards.push({
         english: eng,
         vietnamese: vie,
-        type: 'custom'
+        type: 'custom',
+        user_id: session.user.id,
+        category: category.trim() || 'Chung' // Gắn nhãn cho hàng loạt từ
       });
-      seenInExcel.add(eng); // Ghi nhớ là đã lấy từ này rồi
+      seenInExcel.add(eng);
     }
   }
 
-  // 3. Nếu tất cả các từ trong Excel đều đã có sẵn trong máy -> Trả về số 0
-  if (uniqueNewCards.length === 0) {
-    return 0; 
-  }
+  if (uniqueNewCards.length === 0) return 0;
 
-  // 4. Nếu có từ mới -> Đẩy phần từ mới đó lên Supabase
-  const { error: insertError } = await supabase
-    .from('vocabulary')
-    .insert(uniqueNewCards);
-
+  const { error: insertError } = await supabase.from('vocabulary').insert(uniqueNewCards);
   if (insertError) throw new Error(insertError.message);
 
-  // Trả về số lượng từ VỪA ĐƯỢC THÊM THÀNH CÔNG
-  return uniqueNewCards.length; 
+  return uniqueNewCards.length;
+};
+
+// Hàm MỚI: Lấy danh sách các Bộ từ vựng và đếm số lượng thẻ trong từng bộ
+export const getCategoriesWithCount = async () => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return [];
+
+  // Lấy toàn bộ thẻ custom của người dùng
+  const { data, error } = await supabase
+    .from('vocabulary')
+    .select('category')
+    .eq('user_id', session.user.id)
+    .eq('type', 'custom');
+
+  if (error) throw error;
+
+  // Gom nhóm và đếm
+  const counts: Record<string, number> = {};
+  data.forEach(item => {
+    const cat = item.category || 'Chung';
+    counts[cat] = (counts[cat] || 0) + 1;
+  });
+
+  // Chuyển thành mảng cho dễ dùng ở giao diện
+  return Object.keys(counts).map(key => ({
+    name: key,
+    count: counts[key]
+  }));
+};
+
+// Hàm MỚI: Xóa 1 thẻ cụ thể trong 1 thư mục cụ thể
+export const deleteCustomCardFromCloud = async (englishWord: string, category: string) => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Vui lòng đăng nhập!");
+
+  const { error } = await supabase
+    .from('vocabulary')
+    .delete()
+    .eq('user_id', session.user.id)
+    .eq('english', englishWord.toLowerCase())
+    .eq('category', category)
+    .eq('type', 'custom');
+
+  if (error) throw new Error(error.message);
 };
