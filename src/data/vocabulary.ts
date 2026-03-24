@@ -12,15 +12,15 @@ export interface Flashcard {
 
 // HÀM MỚI: Lấy dữ liệu thật từ Supabase
 export const getFlashcardsFromCloud = async (limit: number = 10): Promise<Flashcard[]> => {
-  // Lệnh truy vấn: "Lấy tất cả cột từ bảng 'vocabulary', giới hạn số lượng"
   const { data, error } = await supabase
     .from('vocabulary')
     .select('*')
+    .eq('type', 'core') // <-- ĐÂY LÀ DÒNG ANH THÊM VÀO: Lọc type = core
     .limit(limit);
 
   if (error) {
     console.error('Lỗi khi lấy dữ liệu từ Supabase:', error.message);
-    return []; // Trả về mảng rỗng nếu lỗi
+    return []; 
   }
 
   return data as Flashcard[];
