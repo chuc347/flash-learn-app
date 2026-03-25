@@ -6,23 +6,33 @@ export interface Flashcard {
   id: string;
   english: string;
   vietnamese: string;
+  phonetic?: string;
   type?: string;
   category?: string;
 }
 
 // HÀM MỚI: Lấy dữ liệu thật từ Supabase
-export const getFlashcardsFromCloud = async (limit: number = 10): Promise<Flashcard[]> => {
-  const { data, error } = await supabase
-    .from('vocabulary')
-    .select('*')
-    .eq('type', 'core') // <-- ĐÂY LÀ DÒNG ANH THÊM VÀO: Lọc type = core
-    .limit(limit);
+// File: src/data/vocabulary.ts
+export const getFlashcardsFromCloud = async (limit: number = 10, category: string = 'all'): Promise<Flashcard[]> => {
+  let query = supabase.from('vocabulary').select('*').eq('type', 'core');
+
+  if (category && category !== 'all') {
+    query = query.eq('category', category);
+  }
+
+  // SỬA LỖI Ở ĐÂY: Chỉ giới hạn nếu limit khác -1
+  if (limit !== -1) {
+    query = query.limit(limit);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     console.error('Lỗi khi lấy dữ liệu từ Supabase:', error.message);
     return []; 
   }
 
+  console.log("Dữ liệu Core kéo về từ DB:", data); 
   return data as Flashcard[];
 };
 
@@ -175,4 +185,89 @@ export const deleteCustomCardFromCloud = async (englishWord: string, category: s
     .eq('type', 'custom');
 
   if (error) throw new Error(error.message);
+};
+
+// Hàm MỚI: Lấy danh sách các chủ đề của từ CORE và đếm số lượng
+export const getCoreCategoriesWithCount = async () => {
+  // Không cần lấy session vì từ Core ai cũng đọc được
+  const { data, error } = await supabase
+    .from('vocabulary')
+    .select('category')
+    .eq('type', 'core');
+
+  if (error) {
+    console.error("Lỗi lấy danh mục Core:", error);
+    return [];
+  }
+
+  // Gom nhóm và đếm
+  const counts: Record<string, number> = {};
+  data.forEach(item => {
+    const cat = item.category || 'Chung'; // Nếu lỡ có từ nào null category thì gom vào 'Chung'
+    counts[cat] = (counts[cat] || 0) + 1;
+  });
+
+  // Chuyển thành mảng cho dễ dùng ở giao diện
+  return Object.keys(counts).map(key => ({
+    name: key,
+    count: counts[key]
+  }));
+};
+
+// Hàm MỚI: Tự động chạy đi tìm phiên âm cho các từ bị thiếu
+export const autoFillPhonetics = async (
+  onProgress: (current: number, total: number, currentWord: string) => void
+) => {
+  // 1. Lấy tất cả từ (cả core và custom) chưa có phiên âm
+  const { data: words, error } = await supabase
+    .from('vocabulary')
+    .select('id, english')
+    .is('phonetic', null);
+
+  if (error || !words) throw new Error("Không lấy được danh sách từ lỗi");
+  if (words.length === 0) return 0;
+
+  // 2. Lặp qua từng từ để gọi API từ điển
+  let successCount = 0;
+  for (let i = 0; i < words.length; i++) {
+    const wordObj = words[i];
+    onProgress(i + 1, words.length, wordObj.english);
+
+    try {
+      // Gọi API từ điển miễn phí
+      const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${wordObj.english}`);
+      if (res.ok) {
+        const apiData = await res.json();
+        
+        // Trích xuất phiên âm (Logic của API này hơi lằng nhằng nên phải check kỹ)
+        let phonetic = apiData[0]?.phonetic;
+        if (!phonetic && apiData[0]?.phonetics) {
+          const phoneticObj = apiData[0].phonetics.find((p: any) => p.text);
+          if (phoneticObj) phonetic = phoneticObj.text;
+        }
+
+        // 3. Nếu tìm thấy phiên âm, cập nhật lên Supabase
+        if (phonetic) {
+          const { error: updateError } = await supabase
+            .from('vocabulary')
+            .update({ phonetic })
+            .eq('id', wordObj.id);
+            
+          if (updateError) {
+            console.error(`❌ Bị chặn khi lưu từ ${wordObj.english}:`, updateError.message);
+          } else {
+            console.log(`✅ Đã lưu ${wordObj.english}: ${phonetic}`);
+            successCount++;
+          }
+        }
+      }
+    } catch (err) {
+      console.log("Bỏ qua từ:", wordObj.english);
+    }
+
+    // 4. BẮT BUỘC: Nghỉ ngơi 500ms (0.5 giây) để không bị API chặn IP
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  return successCount;
 };

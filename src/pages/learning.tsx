@@ -55,15 +55,25 @@ export default function Learning() {
           setFlashcards(shuffledData.slice(0, targetLimit));
 
       } else {
+        // --- LOGIC MỚI CHO CORE LEARNING (SPRINT 2) ---
         try {
-          const cloudData = await getFlashcardsFromCloud(10);
+          // 1. Lấy cấu hình từ Home truyền sang (nếu có)
+          const targetLimit = config?.limit || 10;
+          
+          const targetCategory = config?.category || 'all'; 
+
+          // 2. Gọi DB với cấu hình tương ứng
+          const cloudData = await getFlashcardsFromCloud(targetLimit, targetCategory);
+          
           if (cloudData && cloudData.length > 0) {
             setFlashcards(cloudData.sort(() => Math.random() - 0.5));
           } else {
-            setFlashcards(getRandomFlashcards(10));
+            alert(`Không tìm thấy từ vựng hệ thống nào cho chủ đề "${targetCategory}"!`);
+            navigate('/');
           }
         } catch (error) {
-          setFlashcards(getRandomFlashcards(10));
+          console.error("Lỗi tải dữ liệu Core:", error);
+          // setFlashcards(getRandomFlashcards(10)); // Fallback
         }
       }
     };
@@ -91,6 +101,15 @@ export default function Learning() {
 
     const correctAnswer = showEnglish ? currentCard.vietnamese : currentCard.english;
     const isCorrect = userAnswer.trim().toLowerCase() === correctAnswer.toLowerCase();
+
+    try {
+      const audioUrl = isCorrect ? '/correct.mp3' : '/incorrect.mp3';
+      const audio = new Audio(audioUrl);
+      audio.volume = 0.5;
+      audio.play();
+    } catch (error) {
+      console.log("Lỗi phát âm thanh:", error);
+    }
 
     const newScore = {
       correct: isCorrect ? score.correct + 1 : score.correct,
@@ -205,6 +224,7 @@ export default function Learning() {
             translation={showEnglish ? currentCard.vietnamese : currentCard.english}
             isFlipped={isFlipped}
             showFront={showEnglish}
+            phonetic={currentCard.phonetic}
           />
           {showAnswer && (
             <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center text-sm text-gray-500 mt-4">
@@ -273,10 +293,13 @@ export default function Learning() {
                   <X className="w-16 h-16 mx-auto mb-4" />
                 </motion.div>
                 <h3 className="text-2xl mb-2 font-bold">Not quite</h3>
-                <p className="text-red-100 mb-4">The correct answer is:</p>
-                <p className="text-3xl font-medium">
-                  {showEnglish ? currentCard.vietnamese : currentCard.english}
+                
+                {/* SỬA LỖI Ở ĐÂY: Hiển thị câu trả lời sai của người dùng */}
+                <p className="text-red-100 mb-4">Bạn đã nhập:</p>
+                <p className="text-3xl font-medium line-through decoration-red-300 opacity-90">
+                  {userAnswer}
                 </p>
+
               </div>
               <button
                 onClick={() => moveToNext()}

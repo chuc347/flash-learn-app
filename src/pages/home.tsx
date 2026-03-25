@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'framer-motion';
-import { getCustomCardsCount, getCategoriesWithCount } from '../data/vocabulary';
+import { getCustomCardsCount, getCategoriesWithCount, getCoreCategoriesWithCount, autoFillPhonetics } from '../data/vocabulary';
 import { BookOpen, Plus, Shuffle, Trophy, Search, LogOut, XCircle, Settings2, Play } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 
@@ -18,6 +18,37 @@ export default function Home() {
   const [categories, setCategories] = useState<{name: string, count: number}[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedLimit, setSelectedLimit] = useState<number>(10);
+  // --- STATE MỚI: QUẢN LÝ MODAL CORE LEARNING ---
+  const [showCoreSetup, setShowCoreSetup] = useState(false);
+  const [coreCategories, setCoreCategories] = useState<{name: string, count: number}[]>([]);
+  const [coreMode, setCoreMode] = useState<'random' | 'category'>('random');
+  const [coreLimit, setCoreLimit] = useState<number>(10);
+  const [coreCategory, setCoreCategory] = useState<string>('Chung');
+  const [autoFillStatus, setAutoFillStatus] = useState<string>('');
+
+// Hàm chạy Automation
+const handleAutoFill = async () => {
+  try {
+    setAutoFillStatus('Đang khởi động robot...');
+    const count = await autoFillPhonetics((current, total, word) => {
+      setAutoFillStatus(`Đang xử lý ${current}/${total}: ${word}`);
+    });
+    setAutoFillStatus(`🎉 Hoàn tất! Đã cập nhật thành công ${count} từ.`);
+  } catch (err: any) {
+    setAutoFillStatus('Lỗi: ' + err.message);
+  }
+};
+  
+  // Hàm xử lý khi bắt đầu học từ Core
+  const handleStartCore = () => {
+    navigate('/learn/random', { 
+      state: { 
+        mode: coreMode,
+        limit: coreLimit, 
+        category: coreMode === 'category' ? coreCategory : 'all'
+      } 
+    });
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -28,6 +59,14 @@ export default function Home() {
         // Tải danh sách bộ từ vựng để chuẩn bị cho Modal Setup
         const cats = await getCategoriesWithCount();
         setCategories(cats);
+
+        // --- THÊM DÒNG NÀY: Tải danh sách bộ từ CORE ---
+        const coreCats = await getCoreCategoriesWithCount();
+        setCoreCategories(coreCats);
+
+        // Tự động set giá trị mặc định cho dropdown nếu có data
+        if (coreCats.length > 0) setCoreCategory(coreCats[0].name);
+
       } catch (error) {
         console.error("Lỗi khi tải dữ liệu trang chủ:", error);
       } finally {
@@ -99,35 +138,21 @@ export default function Home() {
           ) : (
             <>
               <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 }}>
-                <Link to="/learn/random">
-                  <button className="w-full bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-2xl p-6 shadow-lg shadow-blue-200 hover:shadow-xl transition-all duration-300 active:scale-95">
-                    <div className="flex items-center justify-between">
-                      <div className="text-left">
-                        <h3 className="text-lg mb-1 font-medium">Start Learning</h3>
-                        <p className="text-sm text-blue-100">Random vocabulary set</p>
-                      </div>
-                      <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
-                        <Shuffle className="w-6 h-6" />
-                      </div>
+                {/* Thay thế <Link to="/learn/random"> bằng onClick */}
+                <button 
+                  onClick={() => setShowCoreSetup(true)}
+                  className="w-full bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-2xl p-6 shadow-lg shadow-blue-200 hover:shadow-xl transition-all duration-300 active:scale-95"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="text-left">
+                      <h3 className="text-lg mb-1 font-medium">Start Learning</h3>
+                      <p className="text-sm text-blue-100">Học từ vựng hệ thống</p>
                     </div>
-                  </button>
-                </Link>
-              </motion.div>
-
-              <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 }}>
-                <Link to="/create">
-                  <button className="w-full bg-white text-gray-800 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-300 active:scale-95 border border-gray-100">
-                    <div className="flex items-center justify-between">
-                      <div className="text-left">
-                        <h3 className="text-lg mb-1 font-medium">Create Flashcard</h3>
-                        <p className="text-sm text-gray-500">Add your own words</p>
-                      </div>
-                      <div className="w-12 h-12 bg-gradient-to-br from-purple-400 to-pink-400 rounded-xl flex items-center justify-center">
-                        <Plus className="w-6 h-6 text-white" />
-                      </div>
+                    <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+                      <Shuffle className="w-6 h-6" />
                     </div>
-                  </button>
-                </Link>
+                  </div>
+                </button>
               </motion.div>
 
               {customCount > 0 && (
@@ -149,6 +174,40 @@ export default function Home() {
                   </button>
                 </motion.div>
               )}
+
+              <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 }}>
+                <Link to="/create">
+                  <button className="w-full bg-white text-gray-800 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-300 active:scale-95 border border-gray-100">
+                    <div className="flex items-center justify-between">
+                      <div className="text-left">
+                        <h3 className="text-lg mb-1 font-medium">Create Flashcard</h3>
+                        <p className="text-sm text-gray-500">Add your own words</p>
+                      </div>
+                      <div className="w-12 h-12 bg-gradient-to-br from-purple-400 to-pink-400 rounded-xl flex items-center justify-center">
+                        <Plus className="w-6 h-6 text-white" />
+                      </div>
+                    </div>
+                  </button>
+                </Link>
+              </motion.div>
+
+              {/* NÚT MA THUẬT TẠM THỜI (Làm xong có thể xóa) */}
+           {/* <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
+             <div className="bg-yellow-50 border border-yellow-200 rounded-2xl p-4 mt-4">
+               <h3 className="font-bold text-yellow-800 mb-2">🛠️ Công cụ Admin</h3>
+               <button 
+                 onClick={handleAutoFill}
+                 className="w-full bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-bold py-2 px-4 rounded-xl transition-all"
+               >
+                 Tự động tìm phiên âm cho DB
+               </button>
+               {autoFillStatus && (
+                 <p className="mt-2 text-sm text-yellow-700 font-mono text-center">
+                   {autoFillStatus}
+                 </p>
+               )}
+             </div>
+           </motion.div> */}
 
               <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.4 }}>
                 <Link to="/manage">
@@ -257,6 +316,97 @@ export default function Home() {
                 className="w-full py-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-2xl font-bold text-lg shadow-lg shadow-purple-200 hover:shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
               >
                 Bắt đầu ngay <Play size={20} className="fill-current" />
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+        {showCoreSetup && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] flex items-end justify-center sm:items-center sm:p-4"
+          >
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: "spring", bounce: 0, duration: 0.4 }}
+              className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md p-6 flex flex-col shadow-2xl"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold text-gray-800">Cấu hình học từ vựng</h2>
+                <button onClick={() => setShowCoreSetup(false)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full">
+                  <XCircle size={24} />
+                </button>
+              </div>
+
+              {/* Chọn Chế độ học */}
+              <div className="mb-6 flex gap-2 p-1 bg-gray-100 rounded-2xl">
+                <button 
+                  onClick={() => setCoreMode('random')}
+                  className={`flex-1 py-2 rounded-xl font-medium text-sm transition-all ${coreMode === 'random' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}
+                >
+                  Ngẫu nhiên
+                </button>
+                <button 
+                  onClick={() => setCoreMode('category')}
+                  className={`flex-1 py-2 rounded-xl font-medium text-sm transition-all ${coreMode === 'category' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}
+                >
+                  Theo Bộ từ
+                </button>
+              </div>
+
+              {/* Render tùy chọn dựa trên chế độ */}
+              {coreMode === 'random' ? (
+                <div className="mb-8 animate-in fade-in slide-in-from-right-4">
+                  <label className="block text-sm font-semibold text-gray-600 mb-3">Số lượng từ ngẫu nhiên</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[10, 20, 50, -1].map((num) => (
+                      <button
+                        key={num} onClick={() => setCoreLimit(num)}
+                        className={`py-3 rounded-xl font-medium border-2 transition-all active:scale-95 ${coreLimit === num ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-transparent bg-gray-50 text-gray-600'}`}
+                      >
+                        {num === -1 ? 'Tất cả' : num}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+               <div className="mb-8 animate-in fade-in slide-in-from-left-4">
+                  <label className="block text-sm font-semibold text-gray-600 mb-3">Chọn cụm từ muốn học</label>
+                  <select 
+                    value={coreCategory} onChange={(e) => setCoreCategory(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-300 text-gray-700 font-medium mb-6"
+                  >
+                    {/* Render động danh sách chủ đề Core */}
+                    {coreCategories.length === 0 ? (
+                      <option value="Chung">Đang tải...</option>
+                    ) : (
+                      coreCategories.map((cat, idx) => (
+                        <option key={idx} value={cat.name}>
+                          📚 Bộ "{cat.name}" ({cat.count} từ)
+                        </option>
+                      ))
+                    )}
+                  </select>
+
+                  {/* THÊM MỚI: Khối chọn số lượng từ cho chế độ Cụm từ */}
+                  <label className="block text-sm font-semibold text-gray-600 mb-3">Số lượng thẻ muốn học</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[10, 20, 50, -1].map((num) => (
+                      <button
+                        key={num} onClick={() => setCoreLimit(num)}
+                        className={`py-3 rounded-xl font-medium border-2 transition-all active:scale-95 ${coreLimit === num ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-transparent bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
+                      >
+                        {num === -1 ? 'Tất cả' : num}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Nút Bắt đầu */}
+              <button
+                onClick={handleStartCore}
+                className="w-full py-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-2xl font-bold text-lg shadow-lg shadow-blue-200 hover:shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
+              >
+                Bắt đầu học <Play size={20} className="fill-current" />
               </button>
             </motion.div>
           </motion.div>

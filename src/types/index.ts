@@ -3,4 +3,5 @@ export interface FlashcardProps {
   translation: string;
   isFlipped: boolean;
   showFront: boolean;
+  phonetic?: string;
 }
