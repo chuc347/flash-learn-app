@@ -84,20 +84,24 @@ export const deleteFlashcardFromCloud = async (id: string) => {
     throw new Error(error.message);
   }
 };
-
-// Hàm tạo 1 thẻ (Có thêm tham số category)
 export const addFlashcardToCloud = async (english: string, vietnamese: string, category: string = 'Chung') => {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error("Vui lòng đăng nhập để lưu thẻ!");
 
+  // --- 🪄 BƯỚC PHÉP THUẬT: ĐI HỎI TỪ ĐIỂN ---
+  const wordToFetch = english.trim().toLowerCase();
+  const phonetic = await fetchPhoneticForWord(wordToFetch);
+  // -----------------------------------------
+
   const { error } = await supabase
     .from('vocabulary')
     .insert([{
-      english: english.trim().toLowerCase(),
+      english: wordToFetch,
       vietnamese: vietnamese.trim().toLowerCase(),
       type: 'custom',
       user_id: session.user.id,
-      category: category.trim() || 'Chung' // Đẩy tên bộ từ vựng lên Cloud
+      category: category.trim() || 'Chung',
+      phonetic: phonetic // <-- TRUYỀN PHIÊN ÂM VÀO ĐÂY LÀ XONG!
     }]);
 
   if (error) throw new Error(error.message);
@@ -270,4 +274,25 @@ export const autoFillPhonetics = async (
   }
 
   return successCount;
+};
+
+// Hàm Helper: Tự động lấy phiên âm cho 1 từ vựng mới
+export const fetchPhoneticForWord = async (word: string): Promise<string | null> => {
+  try {
+    const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word.trim()}`);
+    if (!res.ok) return null; // Nếu không tìm thấy từ, trả về null để không làm crash app
+    
+    const apiData = await res.json();
+    let phonetic = apiData[0]?.phonetic;
+    
+    if (!phonetic && apiData[0]?.phonetics) {
+      const phoneticObj = apiData[0].phonetics.find((p: any) => p.text);
+      if (phoneticObj) phonetic = phoneticObj.text;
+    }
+    
+    return phonetic || null;
+  } catch (error) {
+    console.log("Không lấy được phiên âm cho từ:", word);
+    return null;
+  }
 };

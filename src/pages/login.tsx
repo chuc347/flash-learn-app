@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Lock, Loader2, ArrowRight, CheckCircle } from 'lucide-react';
-import { useNavigate } from 'react-router';
+import { useNavigate, Link } from 'react-router';
 import { supabase } from '../utils/supabase';
 
 export default function Login() {
@@ -109,7 +109,17 @@ export default function Login() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-500 mb-2">Password</label>
+              {/* SỬA LỖI Ở ĐÂY: Dùng Flexbox để đưa link Quên mật khẩu sang góc phải */}
+              <div className="flex justify-between items-center mb-2">
+                <label className="block text-sm font-medium text-gray-500">Password</label>
+                {/* Chỉ hiện chữ Quên mật khẩu khi đang ở chế độ Đăng nhập */}
+                {isLogin && (
+                  <Link to="/forgot-password" className="text-sm font-semibold text-blue-600 hover:text-blue-700 transition-colors">
+                    Forgot password?
+                  </Link>
+                )}
+              </div>
+              
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                   <Lock className="h-5 w-5 text-gray-400" />

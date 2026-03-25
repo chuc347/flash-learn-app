@@ -99,8 +99,21 @@ export default function Learning() {
     e.preventDefault();
     if (!userAnswer.trim()) return;
 
+    // 1. Lấy đáp án chuẩn trên thẻ và đáp án user vừa nhập (đưa về chữ thường hết để dễ so sánh)
     const correctAnswer = showEnglish ? currentCard.vietnamese : currentCard.english;
-    const isCorrect = userAnswer.trim().toLowerCase() === correctAnswer.toLowerCase();
+    const normalizedUserAnswer = userAnswer.trim().toLowerCase();
+    const normalizedCorrectAnswer = correctAnswer.toLowerCase();
+
+    // 2. LOGIC MỚI: Tách chuỗi đáp án thành 1 danh sách (mảng) các nghĩa nhỏ
+    // Regex /[,;]+/ có nghĩa là: Cắt chuỗi ra mỗi khi gặp dấu phẩy (,) hoặc chấm phẩy (;)
+    const possibleAnswers = normalizedCorrectAnswer
+      .split(/[,;]+/) 
+      .map(ans => ans.trim())
+      .filter(ans => ans.length > 0);
+
+    const isCorrect = 
+      normalizedUserAnswer === normalizedCorrectAnswer || 
+      possibleAnswers.includes(normalizedUserAnswer);
 
     try {
       const audioUrl = isCorrect ? '/correct.mp3' : '/incorrect.mp3';
@@ -287,27 +300,33 @@ export default function Learning() {
           )}
 
           {showFeedback === 'incorrect' && (
-            <motion.div key="incorrect-feedback" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }} className="space-y-4">
-              <div className="bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-2xl p-8 shadow-lg text-center">
-                <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}>
-                  <X className="w-16 h-16 mx-auto mb-4" />
-                </motion.div>
-                <h3 className="text-2xl mb-2 font-bold">Not quite</h3>
-                
-                {/* SỬA LỖI Ở ĐÂY: Hiển thị câu trả lời sai của người dùng */}
-                <p className="text-red-100 mb-4">Bạn đã nhập:</p>
-                <p className="text-3xl font-medium line-through decoration-red-300 opacity-90">
-                  {userAnswer}
-                </p>
-
+            <motion.div key="incorrect-feedback" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="space-y-4">
+              
+              {/* 1. THẺ BÁO LỖI ĐÃ ĐƯỢC ÉP CÂN (NẰM NGANG) */}
+              <div className="bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-2xl p-4 shadow-lg flex items-center gap-4">
+                <div className="bg-white/20 p-3 rounded-full shrink-0">
+                  <X className="w-8 h-8" />
+                </div>
+                <div className="text-left flex-1">
+                  <h3 className="text-lg font-bold mb-1">Not quite!</h3>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-red-100 text-sm">Bạn nhập:</span>
+                    <span className="text-xl font-medium line-through decoration-red-300 opacity-90">
+                      {userAnswer}
+                    </span>
+                  </div>
+                </div>
               </div>
+
+              {/* 2. NÚT CONTINUE ĐƯỢC THÊM AUTOFOCUS */}
               <button
                 onClick={() => moveToNext()}
-                className="w-full bg-white text-gray-700 font-medium rounded-2xl py-4 shadow-sm active:scale-95 transition-all border border-gray-100"
+                autoFocus /* <-- BÍ QUYẾT UX LÀ ĐÂY: Tự động focus để nhấn Enter được luôn */
+                className="w-full bg-white text-gray-800 font-bold rounded-2xl py-4 shadow-sm hover:bg-gray-50 active:scale-95 transition-all border border-gray-100"
               >
-                {/* ĐỔI CHỮ NÚT BẤM KHI TRẢ LỜI SAI Ở CÂU CUỐI */}
-                {isLastCard ? 'Xem kết quả' : 'Continue'}
+                {isLastCard ? 'Xem kết quả' : 'Continue (Nhấn Enter)'}
               </button>
+
             </motion.div>
           )}
         </AnimatePresence>

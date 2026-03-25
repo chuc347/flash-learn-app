@@ -55,6 +55,22 @@ export default function CreateFlashcard() {
       setIsTranslating(false);
     }
   };
+  // --- THÊM HÀM MỚI: Dịch Việt -> Anh ---
+  const translateToEnglish = async () => {
+    if (!vietnamese.trim() || english.trim()) return; // Nếu ô tiếng Anh ĐÃ CÓ CHỮ rồi thì KHÔNG dịch đè lên
+    setIsTranslating(true);
+    try {
+      const response = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(vietnamese.trim())}&langpair=vi|en`);
+      const data = await response.json();
+      if (data && data.responseData && data.responseData.translatedText) {
+        setEnglish(data.responseData.translatedText.toLowerCase());
+      }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsTranslating(false);
+    }
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -171,7 +187,17 @@ export default function CreateFlashcard() {
                 type="text"
                 value={english}
                 onChange={(e) => setEnglish(e.target.value)}
-                onBlur={translateWord}
+                onBlur={translateWord} // Xử lý khi click chuột ra ngoài (hoặc bấm Tab)
+                
+                // --- THÊM MỚI: Xử lý khi nhấn phím Enter ---
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault(); // Chặn Form tự động Submit
+                    translateWord();    // Gọi hàm gọi API dịch
+                  }
+                }}
+                // ------------------------------------------
+
                 placeholder="e.g., universe"
                 className="w-full text-lg text-gray-800 bg-transparent border-none outline-none placeholder-gray-300 pr-10"
                 autoFocus
@@ -179,15 +205,28 @@ export default function CreateFlashcard() {
               {isTranslating && <Loader2 className="absolute right-6 top-1/2 translate-y-2 w-5 h-5 text-purple-500 animate-spin" />}
             </div>
 
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-50">
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-50 relative">
               <label className="block text-sm font-medium text-gray-500 mb-3">Vietnamese Translation</label>
               <input
                 type="text"
                 value={vietnamese}
                 onChange={(e) => setVietnamese(e.target.value)}
+                
+                // --- THÊM SỰ KIỆN CHO Ô TIẾNG VIỆT ---
+                onBlur={translateToEnglish}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    translateToEnglish();
+                  }
+                }}
+                // ------------------------------------
+
                 placeholder="e.g., vũ trụ"
-                className="w-full text-lg text-gray-800 bg-transparent border-none outline-none placeholder-gray-300"
+                className="w-full text-lg text-gray-800 bg-transparent border-none outline-none placeholder-gray-300 pr-10"
               />
+              {/* Thêm icon loading xoay xoay y hệt ô tiếng Anh cho đồng bộ UI */}
+              {isTranslating && !english.trim() && <Loader2 className="absolute right-6 top-1/2 translate-y-2 w-5 h-5 text-purple-500 animate-spin" />}
             </div>
 
             <motion.button
