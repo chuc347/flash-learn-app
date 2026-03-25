@@ -246,7 +246,7 @@ const handleAutoFill = async () => {
               <div className="flex gap-3">
                 <button onClick={() => setShowLogoutModal(false)} className="flex-1 py-3.5 bg-gray-100 text-gray-700 rounded-2xl font-medium hover:bg-gray-200 active:scale-95">Hủy</button>
                 <button onClick={executeLogout} className="flex-1 py-3.5 bg-red-500 text-white rounded-2xl font-medium hover:bg-red-600 shadow-lg shadow-red-200 active:scale-95">Đăng xuất</button>
-              </div>n
+              </div>
             </motion.div>
           </motion.div>
         )}
