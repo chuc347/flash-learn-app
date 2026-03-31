@@ -1,9 +1,67 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Check, X, Eye } from 'lucide-react';
+import { ArrowLeft, Check, X, Eye, Loader2 } from 'lucide-react'; // Thêm Loader2
 import { Link, useNavigate, useParams, useLocation } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { getRandomFlashcards, Flashcard, getCustomCardsFromCloud, getFlashcardsFromCloud } from '../data/vocabulary';
 import FlashcardComponent from '../components/flashcard';
+
+// --- HÀM GỌI AI CHẤM ĐIỂM (Phiên bản Thần tốc: Groq + Llama 3.1) ---
+const checkAnswerWithAI = async (englishWord: string, userAnswer: string): Promise<boolean> => {
+  // Đọc Key của Groq từ file .env
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY?.trim();
+  
+  if (!apiKey) {
+    console.warn("Chưa có API Key Groq, bỏ qua bước check AI.");
+    return false;
+  }
+
+  // Khai báo câu hỏi
+  const prompt = `Eng:"${englishWord}". Vie:"${userAnswer}". Is this acceptable?`;
+
+  try {
+    // 🚀 GỌI API CỦA GROQ
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        // 🌟 SỬA Ở ĐÂY: Nâng cấp lên mã Llama 3.1 Instant mới nhất của Groq
+        model: "llama-3.1-8b-instant", 
+        messages: [
+          {
+            role: "system",
+            content: "You are a lenient language teacher. Accept synonyms, related meanings, or minor part-of-speech differences. Reply ONLY TRUE or FALSE."
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
+        temperature: 0,
+        max_tokens: 5 
+      })
+    });
+    
+    // Logic phòng thủ
+    if (!response.ok) {
+      const errorDetails = await response.json();
+      console.error("❌ Lỗi từ máy chủ Groq:", errorDetails);
+      return false; 
+    }
+    
+    const data = await response.json();
+    const aiResponse = data.choices[0].message.content.trim().toUpperCase();
+    
+    return aiResponse.includes('TRUE'); 
+    
+  } catch (error) {
+    console.error("❌ Lỗi kết nối mạng hoặc code:", error);
+    return false; 
+  }
+};
+// -------------------------------------------------------------
 
 export default function Learning() {
   const { mode } = useParams<{ mode: 'random' | 'custom' }>();
@@ -20,6 +78,9 @@ export default function Learning() {
   const [showEnglish, setShowEnglish] = useState(true);
 
   const [incorrectCards, setIncorrectCards] = useState<Flashcard[]>([]);
+  
+  // STATE MỚI: Quản lý trạng thái đang chờ AI suy nghĩ
+  const [isCheckingAI, setIsCheckingAI] = useState(false);
 
   useEffect(() => {
     const loadData = async () => {
@@ -55,14 +116,10 @@ export default function Learning() {
           setFlashcards(shuffledData.slice(0, targetLimit));
 
       } else {
-        // --- LOGIC MỚI CHO CORE LEARNING (SPRINT 2) ---
         try {
-          // 1. Lấy cấu hình từ Home truyền sang (nếu có)
           const targetLimit = config?.limit || 10;
-          
           const targetCategory = config?.category || 'all'; 
 
-          // 2. Gọi DB với cấu hình tương ứng
           const cloudData = await getFlashcardsFromCloud(targetLimit, targetCategory);
           
           if (cloudData && cloudData.length > 0) {
@@ -73,7 +130,6 @@ export default function Learning() {
           }
         } catch (error) {
           console.error("Lỗi tải dữ liệu Core:", error);
-          // setFlashcards(getRandomFlashcards(10)); // Fallback
         }
       }
     };
@@ -92,28 +148,38 @@ export default function Learning() {
   const currentCard = flashcards[currentIndex];
   const progress = ((currentIndex + 1) / flashcards.length) * 100;
   
-  // KIỂM TRA XEM ĐÂY CÓ PHẢI LÀ CÂU CUỐI CÙNG KHÔNG
   const isLastCard = currentIndex === flashcards.length - 1;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // CẬP NHẬT: Thêm async vào hàm Submit
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userAnswer.trim()) return;
+    if (!userAnswer.trim() || isCheckingAI) return; // Chặn spam click khi AI đang duyệt
 
-    // 1. Lấy đáp án chuẩn trên thẻ và đáp án user vừa nhập (đưa về chữ thường hết để dễ so sánh)
     const correctAnswer = showEnglish ? currentCard.vietnamese : currentCard.english;
     const normalizedUserAnswer = userAnswer.trim().toLowerCase();
     const normalizedCorrectAnswer = correctAnswer.toLowerCase();
 
-    // 2. LOGIC MỚI: Tách chuỗi đáp án thành 1 danh sách (mảng) các nghĩa nhỏ
-    // Regex /[,;]+/ có nghĩa là: Cắt chuỗi ra mỗi khi gặp dấu phẩy (,) hoặc chấm phẩy (;)
     const possibleAnswers = normalizedCorrectAnswer
       .split(/[,;]+/) 
       .map(ans => ans.trim())
       .filter(ans => ans.length > 0);
 
-    const isCorrect = 
+    // 1. Chấm điểm siêu tốc bằng thuật toán thông thường
+    let isCorrect = 
       normalizedUserAnswer === normalizedCorrectAnswer || 
       possibleAnswers.includes(normalizedUserAnswer);
+
+    // 2. LOGIC AI: Cứu nét nếu thuật toán thường báo Sai (Chỉ áp dụng dịch Anh -> Việt)
+    if (!isCorrect && showEnglish) {
+      setIsCheckingAI(true);
+      const aiApproved = await checkAnswerWithAI(currentCard.english, normalizedUserAnswer);
+      
+      if (aiApproved) {
+        isCorrect = true; // Quay xe, tính là ĐÚNG
+        console.log("🤖 AI đã cứu câu này!");
+      }
+      setIsCheckingAI(false);
+    }
 
     try {
       const audioUrl = isCorrect ? '/correct.mp3' : '/incorrect.mp3';
@@ -259,8 +325,8 @@ export default function Learning() {
                   value={userAnswer}
                   onChange={(e) => setUserAnswer(e.target.value)}
                   placeholder="Your answer..."
-                  className="w-full text-lg text-gray-800 bg-transparent border-none outline-none placeholder-gray-300"
-                  disabled={showAnswer}
+                  className="w-full text-lg text-gray-800 bg-transparent border-none outline-none placeholder-gray-300 disabled:opacity-50"
+                  disabled={showAnswer || isCheckingAI} /* KHÓA Ô NHẬP KHI AI ĐANG NGHĨ */
                   autoFocus
                 />
               </div>
@@ -268,8 +334,17 @@ export default function Learning() {
               <div className="flex gap-3">
                 {!showAnswer ? (
                   <>
-                    <button type="submit" disabled={!userAnswer.trim()} className="flex-1 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-2xl py-4 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 transition-all font-medium">
-                      Submit
+                    <button 
+                      type="submit" 
+                      disabled={!userAnswer.trim() || isCheckingAI} 
+                      className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-2xl py-4 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 transition-all font-medium"
+                    >
+                      {/* HIỆU ỨNG LOADING KHI GỌI AI */}
+                      {isCheckingAI ? (
+                        <><Loader2 className="w-5 h-5 animate-spin" /> Chờ AI duyệt...</>
+                      ) : (
+                        'Submit'
+                      )}
                     </button>
                     <button type="button" onClick={handleViewAnswer} className="px-6 bg-white text-gray-700 rounded-2xl shadow-sm active:scale-95 transition-all flex items-center justify-center border border-gray-100 hover:bg-gray-50">
                       <Eye className="w-5 h-5" />
@@ -277,7 +352,6 @@ export default function Learning() {
                   </>
                 ) : (
                   <button type="button" onClick={() => moveToNext()} className="flex-1 bg-gradient-to-r from-green-500 to-teal-500 text-white rounded-2xl py-4 shadow-lg active:scale-95 transition-all font-medium">
-                    {/* ĐỔI CHỮ NÚT BẤM KHI BẤM XEM ĐÁP ÁN Ở CÂU CUỐI */}
                     {isLastCard ? 'Xem kết quả' : 'Continue'}
                   </button>
                 )}
@@ -293,7 +367,6 @@ export default function Learning() {
               </motion.div>
               <h3 className="text-2xl mb-2 font-bold">Correct! 🎉</h3>
               <p className="text-green-100">
-                {/* ĐỔI THÔNG BÁO Ở CÂU CUỐI */}
                 {isLastCard ? 'Đang tổng hợp điểm số...' : 'Great job! Moving to next card...'}
               </p>
             </motion.div>
@@ -302,7 +375,6 @@ export default function Learning() {
           {showFeedback === 'incorrect' && (
             <motion.div key="incorrect-feedback" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="space-y-4">
               
-              {/* 1. THẺ BÁO LỖI ĐÃ ĐƯỢC ÉP CÂN (NẰM NGANG) */}
               <div className="bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-2xl p-4 shadow-lg flex items-center gap-4">
                 <div className="bg-white/20 p-3 rounded-full shrink-0">
                   <X className="w-8 h-8" />
@@ -318,10 +390,9 @@ export default function Learning() {
                 </div>
               </div>
 
-              {/* 2. NÚT CONTINUE ĐƯỢC THÊM AUTOFOCUS */}
               <button
                 onClick={() => moveToNext()}
-                autoFocus /* <-- BÍ QUYẾT UX LÀ ĐÂY: Tự động focus để nhấn Enter được luôn */
+                autoFocus 
                 className="w-full bg-white text-gray-800 font-bold rounded-2xl py-4 shadow-sm hover:bg-gray-50 active:scale-95 transition-all border border-gray-100"
               >
                 {isLastCard ? 'Xem kết quả' : 'Continue (Nhấn Enter)'}
