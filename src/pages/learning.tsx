@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Check, X, Eye, Loader2 } from 'lucide-react'; // Thêm Loader2
+import { ArrowLeft, Check, X, Eye, Loader2 } from 'lucide-react';
 import { Link, useNavigate, useParams, useLocation } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { getRandomFlashcards, Flashcard, getCustomCardsFromCloud, getFlashcardsFromCloud } from '../data/vocabulary';
@@ -27,7 +27,7 @@ const checkAnswerWithAI = async (englishWord: string, userAnswer: string): Promi
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        // 🌟 SỬA Ở ĐÂY: Nâng cấp lên mã Llama 3.1 Instant mới nhất của Groq
+        // 🌟 Nâng cấp lên mã Llama 3.1 Instant mới nhất của Groq
         model: "llama-3.1-8b-instant", 
         messages: [
           {
@@ -66,7 +66,12 @@ const checkAnswerWithAI = async (englishWord: string, userAnswer: string): Promi
 export default function Learning() {
   const { mode } = useParams<{ mode: 'random' | 'custom' }>();
   const navigate = useNavigate();
+  
+  // 1. Khai báo Hook useLocation BÊN TRONG component
   const location = useLocation(); 
+  
+  // 2. Lấy cờ isChallengeMode từ Routing State một cách an toàn
+  const isChallengeMode = (location.state as any)?.isChallengeMode || false;
   
   const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -79,7 +84,7 @@ export default function Learning() {
 
   const [incorrectCards, setIncorrectCards] = useState<Flashcard[]>([]);
   
-  // STATE MỚI: Quản lý trạng thái đang chờ AI suy nghĩ
+  // STATE: Quản lý trạng thái đang chờ AI suy nghĩ
   const [isCheckingAI, setIsCheckingAI] = useState(false);
 
   useEffect(() => {
@@ -150,10 +155,9 @@ export default function Learning() {
   
   const isLastCard = currentIndex === flashcards.length - 1;
 
-  // CẬP NHẬT: Thêm async vào hàm Submit
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userAnswer.trim() || isCheckingAI) return; // Chặn spam click khi AI đang duyệt
+    if (!userAnswer.trim() || isCheckingAI) return; // Chặn spam click
 
     const correctAnswer = showEnglish ? currentCard.vietnamese : currentCard.english;
     const normalizedUserAnswer = userAnswer.trim().toLowerCase();
@@ -169,8 +173,8 @@ export default function Learning() {
       normalizedUserAnswer === normalizedCorrectAnswer || 
       possibleAnswers.includes(normalizedUserAnswer);
 
-    // 2. LOGIC AI: Cứu nét nếu thuật toán thường báo Sai (Chỉ áp dụng dịch Anh -> Việt)
-    if (!isCorrect && showEnglish) {
+    // 2. LOGIC AI: Bypass (Bỏ qua) gọi API nếu đang ở chế độ Challenge Mode
+    if (!isCorrect && showEnglish && !isChallengeMode) {
       setIsCheckingAI(true);
       const aiApproved = await checkAnswerWithAI(currentCard.english, normalizedUserAnswer);
       
@@ -256,20 +260,30 @@ export default function Learning() {
               <ArrowLeft className="w-5 h-5 text-gray-700" />
             </button>
           </Link>
-          <div className="text-center">
+          <div className="text-center flex flex-col items-center">
             <p className="text-sm text-gray-500 font-medium">
               Card {currentIndex + 1} of {flashcards.length}
             </p>
-            {(location.state as any)?.category && (location.state as any)?.category !== 'all' && (
-              <span className="text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full mt-1 inline-block">
-                {(location.state as any).category}
-              </span>
-            )}
-            {(location.state as any)?.reviewCards && (
-              <span className="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full mt-1 inline-block">
-                Chế độ Ôn tập
-              </span>
-            )}
+            
+            {/* Hiển thị các Badge dựa trên State */}
+            <div className="flex gap-2 justify-center mt-1">
+              {(location.state as any)?.category && (location.state as any)?.category !== 'all' && (
+                <span className="text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full inline-block">
+                  {(location.state as any).category}
+                </span>
+              )}
+              {(location.state as any)?.reviewCards && (
+                <span className="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full inline-block">
+                  Chế độ Ôn tập
+                </span>
+              )}
+              {/* Badge Báo hiệu chế độ Thử thách */}
+              {isChallengeMode && (
+                <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full inline-block font-bold animate-pulse">
+                  🔥 NO AI
+                </span>
+              )}
+            </div>
           </div>
           <div className="w-12" />
         </div>
@@ -326,7 +340,7 @@ export default function Learning() {
                   onChange={(e) => setUserAnswer(e.target.value)}
                   placeholder="Your answer..."
                   className="w-full text-lg text-gray-800 bg-transparent border-none outline-none placeholder-gray-300 disabled:opacity-50"
-                  disabled={showAnswer || isCheckingAI} /* KHÓA Ô NHẬP KHI AI ĐANG NGHĨ */
+                  disabled={showAnswer || isCheckingAI} 
                   autoFocus
                 />
               </div>
@@ -339,7 +353,6 @@ export default function Learning() {
                       disabled={!userAnswer.trim() || isCheckingAI} 
                       className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-2xl py-4 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 transition-all font-medium"
                     >
-                      {/* HIỆU ỨNG LOADING KHI GỌI AI */}
                       {isCheckingAI ? (
                         <><Loader2 className="w-5 h-5 animate-spin" /> Chờ AI duyệt...</>
                       ) : (

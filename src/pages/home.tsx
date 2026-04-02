@@ -155,6 +155,29 @@ const handleAutoFill = async () => {
                 </button>
               </motion.div>
 
+              <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.15 }}>
+                {/* Thêm className="block" để bọc nút w-full chuẩn xác */}
+                <Link 
+                  to="/learn/random" 
+                  state={{ limit: 30, isChallengeMode: true, category: 'all' }}
+                  className="block" 
+                >
+                  {/* Đã xóa class mt-4 gây lệch UI */}
+                  <button className="w-full bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-2xl p-6 shadow-lg shadow-orange-200 hover:shadow-xl transition-all duration-300 active:scale-95">
+                    <div className="flex items-center justify-between">
+                      <div className="text-left">
+                        <h3 className="text-lg mb-1 font-medium">Start Challenge 🔥</h3>
+                        <p className="text-sm text-orange-100">Thử thách 30 từ cốt lõi</p>
+                      </div>
+                      <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center font-bold text-xl">
+                        30
+                      </div>
+                    </div>
+                  </button>
+                </Link>
+              </motion.div>
+              
+
               {customCount > 0 && (
                 <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 }}>
                   {/* Thay Link bằng onClick mở Modal Setup */}
