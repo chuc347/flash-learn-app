@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Check, Plus, Loader2, FileSpreadsheet, CheckCircle, AlertTriangle, XCircle, FolderOpen, ChevronDown, FolderPlus } from 'lucide-react';
+import { ArrowLeft, Check, Plus, Loader2, FileSpreadsheet, CheckCircle, AlertTriangle, XCircle, FolderOpen, ChevronDown, FolderPlus, Sparkles } from 'lucide-react';
 import { Link, useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as XLSX from 'xlsx';
@@ -21,6 +21,12 @@ export default function CreateFlashcard() {
   const [isImporting, setIsImporting] = useState(false);
 
   const [modalConfig, setModalConfig] = useState({ isOpen: false, title: '', message: '', type: 'success' });
+
+  // --- TASK 1: STATE CHO TÍNH NĂNG AI GENERATOR ---
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [aiTopic, setAiTopic] = useState('');
+  const [aiCount, setAiCount] = useState<number>(10);
+  const [isGeneratingAi, setIsGeneratingAi] = useState(false); // Trạng thái chờ AI
 
   // Load danh sách thư mục khi mới vào trang
   const loadCategories = async () => {
@@ -55,9 +61,9 @@ export default function CreateFlashcard() {
       setIsTranslating(false);
     }
   };
-  // --- THÊM HÀM MỚI: Dịch Việt -> Anh ---
+
   const translateToEnglish = async () => {
-    if (!vietnamese.trim() || english.trim()) return; // Nếu ô tiếng Anh ĐÃ CÓ CHỮ rồi thì KHÔNG dịch đè lên
+    if (!vietnamese.trim() || english.trim()) return;
     setIsTranslating(true);
     try {
       const response = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(vietnamese.trim())}&langpair=vi|en`);
@@ -106,7 +112,7 @@ export default function CreateFlashcard() {
         else if (addedCount < cardsToImport.length) showModal("Hoàn tất!", `Thêm ${addedCount} từ vào bộ "${category}" (Bỏ qua ${cardsToImport.length - addedCount} từ trùng)`, "success");
         else showModal("Tuyệt vời!", `Thêm ${addedCount} từ vào bộ "${category}"!`, "success");
         
-        loadCategories(); // Cập nhật lại số lượng thư mục
+        loadCategories();
 
       } catch (error: any) {
         showModal("Lỗi", error.message, "error");
@@ -127,7 +133,7 @@ export default function CreateFlashcard() {
       await addFlashcardToCloud(english.trim(), vietnamese.trim(), category.trim());
       
       setShowSuccess(true);
-      loadCategories(); // Cập nhật lại số lượng thư mục
+      loadCategories(); 
       
       setTimeout(() => {
         setEnglish('');
@@ -141,12 +147,95 @@ export default function CreateFlashcard() {
     }
   };
 
-  // Xử lý tạo thư mục mới từ Modal
   const handleCreateNewCategory = () => {
     if (newCategoryInput.trim()) {
       setCategory(newCategoryInput.trim());
       setNewCategoryInput('');
       setShowCategoryModal(false);
+    }
+  };
+
+// --- TASK 2 & 3: HÀM GỌI API AI & LƯU DATABASE (ĐÃ FIX LỖI URL 404) ---
+  const handleGenerateAI = async () => {
+    if (!aiTopic.trim()) {
+      showModal("Thiếu thông tin", "Vui lòng nhập chủ đề bạn muốn học!", "warning");
+      return;
+    }
+
+    setIsGeneratingAi(true);
+    const apiKey = import.meta.env.VITE_GROQ_API_KEY?.trim();
+
+    if (!apiKey) {
+      showModal("Lỗi API", "Chưa cấu hình API Key Groq.", "error");
+      setIsGeneratingAi(false);
+      return;
+    }
+
+    try {
+      const systemPrompt = `You are a strict JSON data generator. Output ONLY a valid JSON object. No explanations, no markdown formatting.
+REQUIRED SCHEMA:
+{
+  "categoryName": "Tên chủ đề tiếng Việt ngắn gọn",
+  "cards": [
+    { "english": "word 1", "vietnamese": "nghĩa tiếng Việt 1" },
+    { "english": "word 2", "vietnamese": "nghĩa tiếng Việt 2" }
+  ]
+}`;
+      const userPrompt = `Generate exactly ${aiCount} English vocabulary flashcards about: "${aiTopic}".`;
+
+      // 🚀 SỬA Ở ĐÂY: Đã xóa các dấu ngoặc vuông/tròn thừa, đưa về URL chuẩn xác!
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: "llama-3.1-8b-instant",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+          ],
+          temperature: 0.4, 
+          response_format: { type: "json_object" }
+        })
+      });
+
+      if (!response.ok) throw new Error("Lỗi kết nối đến máy chủ AI");
+
+      const data = await response.json();
+      let aiResponseText = data.choices[0].message.content.trim();
+      
+      console.log("🤖 Raw AI Response:", aiResponseText);
+
+      aiResponseText = aiResponseText.replace(/```json/g, '').replace(/```/g, '').trim();
+
+      const parsedData = JSON.parse(aiResponseText);
+      
+      const generatedCategory = parsedData.categoryName || parsedData.topic || `AI: ${aiTopic.substring(0, 15)}...`;
+      const generatedCards = parsedData.cards || parsedData.flashcards || parsedData.vocabulary || parsedData.data || [];
+
+      if (!Array.isArray(generatedCards) || generatedCards.length === 0) {
+        throw new Error("AI không trả về mảng từ vựng nào hợp lệ.");
+      }
+
+      const addedCount = await addMultipleFlashcardsToCloud(generatedCards, generatedCategory);
+
+      setShowAiModal(false);
+      setAiTopic(''); 
+      loadCategories();
+
+      showModal(
+        "Thành công! 🎉", 
+        `Trợ lý AI đã tạo bộ "${generatedCategory}" với ${addedCount} từ vựng.`, 
+        "success"
+      );
+
+    } catch (error: any) {
+      console.error("Lỗi Generate AI:", error);
+      showModal("Lỗi tạo từ vựng", "AI đang quá tải hoặc trả về sai định dạng. Vui lòng thử lại!\nChi tiết: " + error.message, "error");
+    } finally {
+      setIsGeneratingAi(false);
     }
   };
 
@@ -164,9 +253,18 @@ export default function CreateFlashcard() {
         </div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+          
+          {/* --- NÚT TRIGGER MỞ MODAL AI --- */}
+          <button 
+            onClick={() => setShowAiModal(true)}
+            className="w-full mb-6 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-2xl p-4 shadow-lg shadow-indigo-200 hover:shadow-xl transition-all duration-300 active:scale-95 flex items-center justify-center gap-2 font-bold"
+          >
+            <Sparkles className="w-5 h-5" />
+            Tạo bộ từ vựng siêu tốc bằng AI
+          </button>
+
           <form onSubmit={handleSubmit} className="space-y-4">
             
-            {/* --- NÚT BẤM MỞ BỘ TỪ VỰNG --- */}
             <div 
               onClick={() => setShowCategoryModal(true)}
               className="bg-purple-100/50 hover:bg-purple-100 transition-colors cursor-pointer rounded-2xl p-5 shadow-sm border border-purple-100 flex items-center gap-4 active:scale-95"
@@ -187,20 +285,15 @@ export default function CreateFlashcard() {
                 type="text"
                 value={english}
                 onChange={(e) => setEnglish(e.target.value)}
-                onBlur={translateWord} // Xử lý khi click chuột ra ngoài (hoặc bấm Tab)
-                
-                // --- THÊM MỚI: Xử lý khi nhấn phím Enter ---
+                onBlur={translateWord} 
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    e.preventDefault(); // Chặn Form tự động Submit
-                    translateWord();    // Gọi hàm gọi API dịch
+                    e.preventDefault(); 
+                    translateWord();    
                   }
                 }}
-                // ------------------------------------------
-
                 placeholder="e.g., universe"
                 className="w-full text-lg text-gray-800 bg-transparent border-none outline-none placeholder-gray-300 pr-10"
-                autoFocus
               />
               {isTranslating && <Loader2 className="absolute right-6 top-1/2 translate-y-2 w-5 h-5 text-purple-500 animate-spin" />}
             </div>
@@ -211,8 +304,6 @@ export default function CreateFlashcard() {
                 type="text"
                 value={vietnamese}
                 onChange={(e) => setVietnamese(e.target.value)}
-                
-                // --- THÊM SỰ KIỆN CHO Ô TIẾNG VIỆT ---
                 onBlur={translateToEnglish}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
@@ -220,12 +311,9 @@ export default function CreateFlashcard() {
                     translateToEnglish();
                   }
                 }}
-                // ------------------------------------
-
                 placeholder="e.g., vũ trụ"
                 className="w-full text-lg text-gray-800 bg-transparent border-none outline-none placeholder-gray-300 pr-10"
               />
-              {/* Thêm icon loading xoay xoay y hệt ô tiếng Anh cho đồng bộ UI */}
               {isTranslating && !english.trim() && <Loader2 className="absolute right-6 top-1/2 translate-y-2 w-5 h-5 text-purple-500 animate-spin" />}
             </div>
 
@@ -262,20 +350,15 @@ export default function CreateFlashcard() {
         </motion.div>
       </div>
 
-      {/* --- MODAL CHỌN THƯ MỤC XỊN XÒ --- */}
+      {/* --- MODAL CHỌN THƯ MỤC CŨ (Giữ nguyên) --- */}
       <AnimatePresence>
         {showCategoryModal && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end justify-center sm:items-center sm:p-4"
           >
             <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: "spring", bounce: 0, duration: 0.4 }}
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: "spring", bounce: 0, duration: 0.4 }}
               className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md p-6 max-h-[80vh] flex flex-col shadow-2xl"
             >
               <div className="flex justify-between items-center mb-6">
@@ -285,7 +368,6 @@ export default function CreateFlashcard() {
                 </button>
               </div>
 
-              {/* Danh sách các bộ đã có */}
               <div className="flex-1 overflow-y-auto space-y-3 pr-2 mb-6">
                 {categoriesList.length === 0 ? (
                   <p className="text-center text-gray-500 py-4 text-sm">Chưa có bộ từ vựng nào. Hãy tạo mới ở dưới nhé!</p>
@@ -293,10 +375,7 @@ export default function CreateFlashcard() {
                   categoriesList.map((cat, idx) => (
                     <div 
                       key={idx}
-                      onClick={() => {
-                        setCategory(cat.name);
-                        setShowCategoryModal(false);
-                      }}
+                      onClick={() => { setCategory(cat.name); setShowCategoryModal(false); }}
                       className={`flex items-center justify-between p-4 rounded-2xl cursor-pointer transition-all active:scale-95 border-2 ${category === cat.name ? 'bg-purple-50 border-purple-400' : 'bg-gray-50 hover:bg-gray-100 border-transparent'}`}
                     >
                       <div className="flex items-center gap-3">
@@ -311,7 +390,6 @@ export default function CreateFlashcard() {
                 )}
               </div>
 
-              {/* Form tạo bộ mới */}
               <div className="pt-4 border-t border-gray-100">
                 <label className="block text-xs font-semibold text-gray-500 uppercase mb-2">Tạo thư mục mới</label>
                 <div className="flex gap-2">
@@ -337,10 +415,81 @@ export default function CreateFlashcard() {
         )}
       </AnimatePresence>
 
+      {/* --- TASK 1 & 2 & 3: MODAL TẠO FLASHCARD BẰNG AI --- */}
+      <AnimatePresence>
+        {showAiModal && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] flex items-end justify-center sm:items-center sm:p-4"
+          >
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: "spring", bounce: 0, duration: 0.4 }}
+              className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md p-6 shadow-2xl"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <div className="flex items-center gap-2">
+                  <div className="bg-indigo-100 p-2 rounded-lg text-indigo-600">
+                    <Sparkles size={20} />
+                  </div>
+                  <h2 className="text-xl font-bold text-gray-800">Trợ lý AI</h2>
+                </div>
+                <button onClick={() => setShowAiModal(false)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full transition-colors">
+                  <XCircle size={24} />
+                </button>
+              </div>
+
+              <div className="space-y-5">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-600 mb-2">Bạn muốn học về chủ đề gì?</label>
+                  <textarea
+                    value={aiTopic}
+                    onChange={(e) => setAiTopic(e.target.value)}
+                    placeholder="VD: Tôi sắp đi du lịch Thái Lan, cần các từ vựng về trả giá ở chợ..."
+                    className="w-full bg-gray-50 border border-gray-200 rounded-2xl p-4 outline-none focus:ring-2 focus:ring-indigo-300 resize-none h-28 text-gray-700"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-600 mb-3">Số lượng từ vựng</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[5, 10, 15, 20].map((num) => (
+                      <button
+                        key={num}
+                        onClick={() => setAiCount(num)}
+                        className={`py-3 rounded-xl font-medium border-2 transition-all active:scale-95 ${
+                          aiCount === num 
+                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700' 
+                            : 'border-transparent bg-gray-50 text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        {num}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* --- CẬP NHẬT NÚT BẤM LOADING --- */}
+                <button
+                  onClick={handleGenerateAI}
+                  disabled={isGeneratingAi}
+                  className="w-full mt-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-2xl py-4 shadow-lg font-bold text-lg active:scale-95 transition-all flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isGeneratingAi ? (
+                    <><Loader2 className="w-6 h-6 animate-spin" /> Đang tổng hợp dữ liệu...</>
+                  ) : (
+                    "🚀 Tạo bộ từ (Generate)"
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Modal báo lỗi/thành công giữ nguyên */}
       <AnimatePresence>
         {modalConfig.isOpen && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
             <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl text-center">
               <div className="flex justify-center mb-4">
                 {modalConfig.type === 'success' && <div className="w-16 h-16 bg-green-100 text-green-500 rounded-full flex items-center justify-center"><CheckCircle size={32} /></div>}

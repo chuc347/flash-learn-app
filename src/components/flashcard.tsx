@@ -25,7 +25,7 @@ export default function Flashcard({ word, translation, isFlipped, showFront, pho
   };
 
   return (
-    <div className="relative w-full h-80 perspective">
+    <div className="relative w-full h-72 perspective">
       <motion.div
         className="relative w-full h-full"
         initial={false}

@@ -5,9 +5,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { getRandomFlashcards, Flashcard, getCustomCardsFromCloud, getFlashcardsFromCloud } from '../data/vocabulary';
 import FlashcardComponent from '../components/flashcard';
 
-// --- HÀM GỌI AI CHẤM ĐIỂM (Phiên bản Thần tốc: Groq + Llama 3.1) ---
-const checkAnswerWithAI = async (englishWord: string, userAnswer: string): Promise<boolean> => {
-  // Đọc Key của Groq từ file .env
+// --- HÀM GỌI AI CHẤM ĐIỂM 2 CHIỀU ---
+// Thêm tham số isTypingEnglish để định tuyến Prompt
+const checkAnswerWithAI = async (questionWord: string, userAnswer: string, isTypingEnglish: boolean): Promise<boolean> => {
   const apiKey = import.meta.env.VITE_GROQ_API_KEY?.trim();
   
   if (!apiKey) {
@@ -15,11 +15,12 @@ const checkAnswerWithAI = async (englishWord: string, userAnswer: string): Promi
     return false;
   }
 
-  // Khai báo câu hỏi
-  const prompt = `Eng:"${englishWord}". Vie:"${userAnswer}". Is this acceptable?`;
+  // 🌟 DYNAMIC PROMPT: Câu lệnh động thay đổi theo hướng dịch
+  const prompt = isTypingEnglish
+    ? `Question (Vietnamese):"${questionWord}". User Answer (English):"${userAnswer}". Is this acceptable english translation (including contractions like I'm/I am or synonyms)? Reply ONLY TRUE or FALSE.`
+    : `Question (English):"${questionWord}". User Answer (Vietnamese):"${userAnswer}". Is this acceptable vietnamese translation (synonyms/related meaning OK)? Reply ONLY TRUE or FALSE.`;
 
   try {
-    // 🚀 GỌI API CỦA GROQ
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 
@@ -27,7 +28,6 @@ const checkAnswerWithAI = async (englishWord: string, userAnswer: string): Promi
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        // 🌟 Nâng cấp lên mã Llama 3.1 Instant mới nhất của Groq
         model: "llama-3.1-8b-instant", 
         messages: [
           {
@@ -44,7 +44,6 @@ const checkAnswerWithAI = async (englishWord: string, userAnswer: string): Promi
       })
     });
     
-    // Logic phòng thủ
     if (!response.ok) {
       const errorDetails = await response.json();
       console.error("❌ Lỗi từ máy chủ Groq:", errorDetails);
@@ -66,11 +65,7 @@ const checkAnswerWithAI = async (englishWord: string, userAnswer: string): Promi
 export default function Learning() {
   const { mode } = useParams<{ mode: 'random' | 'custom' }>();
   const navigate = useNavigate();
-  
-  // 1. Khai báo Hook useLocation BÊN TRONG component
   const location = useLocation(); 
-  
-  // 2. Lấy cờ isChallengeMode từ Routing State một cách an toàn
   const isChallengeMode = (location.state as any)?.isChallengeMode || false;
   
   const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
@@ -83,8 +78,6 @@ export default function Learning() {
   const [showEnglish, setShowEnglish] = useState(true);
 
   const [incorrectCards, setIncorrectCards] = useState<Flashcard[]>([]);
-  
-  // STATE: Quản lý trạng thái đang chờ AI suy nghĩ
   const [isCheckingAI, setIsCheckingAI] = useState(false);
 
   useEffect(() => {
@@ -152,12 +145,11 @@ export default function Learning() {
 
   const currentCard = flashcards[currentIndex];
   const progress = ((currentIndex + 1) / flashcards.length) * 100;
-  
   const isLastCard = currentIndex === flashcards.length - 1;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userAnswer.trim() || isCheckingAI) return; // Chặn spam click
+    if (!userAnswer.trim() || isCheckingAI) return;
 
     const correctAnswer = showEnglish ? currentCard.vietnamese : currentCard.english;
     const normalizedUserAnswer = userAnswer.trim().toLowerCase();
@@ -168,19 +160,25 @@ export default function Learning() {
       .map(ans => ans.trim())
       .filter(ans => ans.length > 0);
 
-    // 1. Chấm điểm siêu tốc bằng thuật toán thông thường
+    // 1. Chấm điểm siêu tốc offline
     let isCorrect = 
       normalizedUserAnswer === normalizedCorrectAnswer || 
       possibleAnswers.includes(normalizedUserAnswer);
 
-    // 2. LOGIC AI: Bypass (Bỏ qua) gọi API nếu đang ở chế độ Challenge Mode
-    if (!isCorrect && showEnglish && !isChallengeMode) {
+    // 2. LOGIC AI 2 CHIỀU: Chạy ở cả 2 mặt ngôn ngữ nếu người dùng gõ sai
+    if (!isCorrect && !isChallengeMode) {
       setIsCheckingAI(true);
-      const aiApproved = await checkAnswerWithAI(currentCard.english, normalizedUserAnswer);
+      
+      // Xác định từ gốc đang hiển thị trên thẻ là gì
+      const questionWord = showEnglish ? currentCard.english : currentCard.vietnamese;
+      // Xác định xem người dùng đang gõ tiếng Anh hay tiếng Việt
+      const isTypingEnglish = !showEnglish;
+      
+      const aiApproved = await checkAnswerWithAI(questionWord, normalizedUserAnswer, isTypingEnglish);
       
       if (aiApproved) {
-        isCorrect = true; // Quay xe, tính là ĐÚNG
-        console.log("🤖 AI đã cứu câu này!");
+        isCorrect = true; // AI cứu thành công!
+        console.log("🤖 AI đã cứu câu này (Chế độ 2 chiều)!");
       }
       setIsCheckingAI(false);
     }
@@ -265,7 +263,6 @@ export default function Learning() {
               Card {currentIndex + 1} of {flashcards.length}
             </p>
             
-            {/* Hiển thị các Badge dựa trên State */}
             <div className="flex gap-2 justify-center mt-1">
               {(location.state as any)?.category && (location.state as any)?.category !== 'all' && (
                 <span className="text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full inline-block">
@@ -277,7 +274,6 @@ export default function Learning() {
                   Chế độ Ôn tập
                 </span>
               )}
-              {/* Badge Báo hiệu chế độ Thử thách */}
               {isChallengeMode && (
                 <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full inline-block font-bold animate-pulse">
                   🔥 NO AI
@@ -287,46 +283,45 @@ export default function Learning() {
           </div>
           <div className="w-12" />
         </div>
+        
+        {/* Wrapper đồng bộ UI */}
+        <div className="w-[90%] mx-auto">
+          <div className="mb-8">
+            <div className="h-3 bg-white rounded-full shadow-sm overflow-hidden border border-gray-100">
+              <motion.div
+                className="h-full bg-gradient-to-r from-blue-500 to-purple-500"
+                initial={{ width: 0 }}
+                animate={{ width: `${progress}%` }}
+                transition={{ duration: 0.3 }}
+              />
+            </div>
+            <div className="flex justify-between mt-3 text-sm font-medium">
+              <span className="text-green-600 bg-green-50 px-2 py-1 rounded-lg">✓ {score.correct}</span>
+              <span className="text-red-500 bg-red-50 px-2 py-1 rounded-lg">✗ {score.incorrect}</span>
+            </div>
+          </div>
 
-        {/* Progress Bar */}
-        <div className="mb-8">
-          <div className="h-3 bg-white rounded-full shadow-sm overflow-hidden border border-gray-100">
-            <motion.div
-              className="h-full bg-gradient-to-r from-blue-500 to-purple-500"
-              initial={{ width: 0 }}
-              animate={{ width: `${progress}%` }}
-              transition={{ duration: 0.3 }}
+          <motion.div
+            key={currentIndex}
+            initial={{ opacity: 0, x: 100 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="mb-8"
+            onClick={handleCardTap}
+          >
+            <FlashcardComponent
+              word={showEnglish ? currentCard.english : currentCard.vietnamese}
+              translation={showEnglish ? currentCard.vietnamese : currentCard.english}
+              isFlipped={isFlipped}
+              showFront={showEnglish}
+              phonetic={currentCard.phonetic}
             />
-          </div>
-          <div className="flex justify-between mt-3 text-sm font-medium">
-            <span className="text-green-600 bg-green-50 px-2 py-1 rounded-lg">✓ {score.correct}</span>
-            <span className="text-red-500 bg-red-50 px-2 py-1 rounded-lg">✗ {score.incorrect}</span>
-          </div>
-        </div>
+            {showAnswer && (
+              <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center text-sm text-gray-500 mt-4">
+                Tap card to flip
+              </motion.p>
+            )}
+          </motion.div>
 
-        {/* Flashcard */}
-        <motion.div
-          key={currentIndex}
-          initial={{ opacity: 0, x: 100 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="mb-8"
-          onClick={handleCardTap}
-        >
-          <FlashcardComponent
-            word={showEnglish ? currentCard.english : currentCard.vietnamese}
-            translation={showEnglish ? currentCard.vietnamese : currentCard.english}
-            isFlipped={isFlipped}
-            showFront={showEnglish}
-            phonetic={currentCard.phonetic}
-          />
-          {showAnswer && (
-            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center text-sm text-gray-500 mt-4">
-              Tap card to flip
-            </motion.p>
-          )}
-        </motion.div>
-
-        {/* Input Section */}
         <AnimatePresence mode="wait">
           {!showFeedback && (
             <motion.form key="input-form" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} onSubmit={handleSubmit} className="space-y-4">
@@ -372,7 +367,6 @@ export default function Learning() {
             </motion.form>
           )}
 
-          {/* Feedback */}
           {showFeedback === 'correct' && (
             <motion.div key="correct-feedback" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }} className="bg-gradient-to-r from-green-500 to-teal-500 text-white rounded-2xl p-8 shadow-lg text-center">
               <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}>
@@ -414,6 +408,7 @@ export default function Learning() {
             </motion.div>
           )}
         </AnimatePresence>
+        </div>
       </div>
     </div>
   );
