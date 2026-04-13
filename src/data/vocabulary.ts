@@ -12,7 +12,6 @@ export interface Flashcard {
 }
 
 // HÀM MỚI: Lấy dữ liệu thật từ Supabase
-// File: src/data/vocabulary.ts
 export const getFlashcardsFromCloud = async (limit: number = 10, category: string = 'all'): Promise<Flashcard[]> => {
   let query = supabase.from('vocabulary').select('*').eq('type', 'core');
 
@@ -84,6 +83,7 @@ export const deleteFlashcardFromCloud = async (id: string) => {
     throw new Error(error.message);
   }
 };
+
 export const addFlashcardToCloud = async (english: string, vietnamese: string, category: string = 'Chung') => {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error("Vui lòng đăng nhập để lưu thẻ!");
@@ -107,44 +107,55 @@ export const addFlashcardToCloud = async (english: string, vietnamese: string, c
   if (error) throw new Error(error.message);
 };
 
-// Hàm nhập Excel (Cũng được gắn category cho toàn bộ file Excel)
-export const addMultipleFlashcardsToCloud = async (cards: {english: string, vietnamese: string}[], category: string = 'Chung') => {
+// Hàm nhập Excel & AI (Đã nâng cấp: Lọc trùng theo Thư mục & Cắt số lượng thông minh)
+export const addMultipleFlashcardsToCloud = async (
+  cards: {english: string, vietnamese: string}[], 
+  category: string = 'Chung',
+  targetCount?: number // Tham số mới: Chỉ định số lượng tối đa muốn thêm (Dành cho AI)
+) => {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error("Vui lòng đăng nhập để lưu thẻ!");
 
+  // 👉 CẢI TIẾN 1: Tách biệt phạm vi (Scope). Chỉ tìm các từ đã tồn tại trong CÙNG 1 CATEGORY
   const { data: existingCards, error: fetchError } = await supabase
     .from('vocabulary')
     .select('english')
-    .eq('user_id', session.user.id);
+    .eq('user_id', session.user.id)
+    .eq('category', category.trim()); // <-- THÊM DÒNG NÀY ĐỂ KO BỊ CHẶN BỞI THƯ MỤC KHÁC
 
   if (fetchError) throw new Error("Lỗi kiểm tra trùng lặp: " + fetchError.message);
 
   const existingWords = new Set(existingCards?.map(card => card.english.toLowerCase()) || []);
   const uniqueNewCards = [];
-  const seenInExcel = new Set();
+  const seenInList = new Set();
 
   for (const card of cards) {
     const eng = String(card.english).trim().toLowerCase();
     const vie = String(card.vietnamese).trim().toLowerCase();
 
-    if (!existingWords.has(eng) && !seenInExcel.has(eng)) {
+    // Lọc bỏ từ đã có trong Bộ này, VÀ lọc bỏ từ bị AI/Excel sinh trùng lặp trong cùng 1 mảng
+    if (!existingWords.has(eng) && !seenInList.has(eng)) {
       uniqueNewCards.push({
         english: eng,
         vietnamese: vie,
         type: 'custom',
         user_id: session.user.id,
-        category: category.trim() || 'Chung' // Gắn nhãn cho hàng loạt từ
+        category: category.trim() || 'Chung' 
       });
-      seenInExcel.add(eng);
+      seenInList.add(eng);
     }
   }
 
   if (uniqueNewCards.length === 0) return 0;
 
-  const { error: insertError } = await supabase.from('vocabulary').insert(uniqueNewCards);
+  // 👉 CẢI TIẾN 2: Kỹ thuật Fallback. Nếu có targetCount (AI), chỉ lấy đúng số lượng yêu cầu từ mảng đã lọc
+  // Nếu không có targetCount (Import Excel), thì lấy toàn bộ
+  const finalCardsToInsert = targetCount ? uniqueNewCards.slice(0, targetCount) : uniqueNewCards;
+
+  const { error: insertError } = await supabase.from('vocabulary').insert(finalCardsToInsert);
   if (insertError) throw new Error(insertError.message);
 
-  return uniqueNewCards.length;
+  return finalCardsToInsert.length;
 };
 
 // Hàm MỚI: Lấy danh sách các Bộ từ vựng và đếm số lượng thẻ trong từng bộ
@@ -295,4 +306,113 @@ export const fetchPhoneticForWord = async (word: string): Promise<string | null>
     console.log("Không lấy được phiên âm cho từ:", word);
     return null;
   }
+};
+
+// Hàm MỚI: Xóa TOÀN BỘ thẻ trong 1 thư mục cụ thể
+export const deleteCategoryFromCloud = async (categoryName: string) => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Vui lòng đăng nhập!");
+
+  const { error } = await supabase
+    .from('vocabulary')
+    .delete()
+    .eq('user_id', session.user.id)
+    .eq('category', categoryName)
+    .eq('type', 'custom');
+
+  if (error) throw new Error(error.message);
+};
+
+// --- CÁC HÀM XỬ LÝ AVATAR/METADATA ---
+
+// 1. Hàm lưu hoặc cập nhật Avatar cho thư mục
+export const upsertCategoryMetadata = async (categoryName: string, avatarUrl: string) => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Vui lòng đăng nhập!");
+
+  const { error } = await supabase
+    .from('category_metadata')
+    .upsert({ 
+      user_id: session.user.id, 
+      category_name: categoryName, 
+      avatar_url: avatarUrl 
+    }, { onConflict: 'user_id, category_name' }); // Nếu trùng user và tên bộ thì ghi đè
+
+  if (error) throw new Error(error.message);
+};
+
+// 2. Hàm lấy toàn bộ Avatar của người dùng
+export const getAllCategoryMetadata = async () => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return {};
+
+  const { data, error } = await supabase
+    .from('category_metadata')
+    .select('category_name, avatar_url')
+    .eq('user_id', session.user.id);
+
+  if (error) {
+    console.error("Lỗi lấy metadata:", error);
+    return {};
+  }
+
+  // Biến mảng thành Object cho dễ tra cứu: { "Tên bộ": "url_ảnh" }
+  return data.reduce((acc, item) => {
+    acc[item.category_name] = item.avatar_url;
+    return acc;
+  }, {} as Record<string, string>);
+};
+
+// 👉 HÀM MỚI CHÍNH THỨC XUẤT HIỆN Ở ĐÂY: Upload file ảnh (Blob) lên Supabase Storage
+// 👉 HÀM ĐÃ FIX LỖI TIẾNG VIỆT: Upload file ảnh (Blob) lên Supabase Storage
+export const uploadCategoryAvatarToCloud = async (file: Blob, categoryName: string): Promise<string> => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Vui lòng đăng nhập!");
+
+  // 🛠️ KỸ THUẬT SANITIZE: Loại bỏ dấu tiếng Việt và ký tự đặc biệt
+  const safeCategoryName = categoryName
+    .normalize('NFD') // Tách dấu ra khỏi chữ
+    .replace(/[\u0300-\u036f]/g, '') // Xóa các dấu
+    .replace(/đ/g, 'd').replace(/Đ/g, 'D') // Xử lý chữ Đ
+    .replace(/[^a-zA-Z0-9]/g, '_') // Biến mọi thứ không phải chữ và số thành dấu gạch dưới
+    .toLowerCase(); // Viết thường hết cho an toàn
+
+  const fileExt = 'jpeg';
+  // Tên file bây giờ sẽ là: id_trai_cay_123456789.jpeg -> An toàn tuyệt đối!
+  const fileName = `${session.user.id}_${safeCategoryName}_${Date.now()}.${fileExt}`;
+  const filePath = `${fileName}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from('category_avatars')
+    .upload(filePath, file, { contentType: 'image/jpeg', upsert: true });
+
+  if (uploadError) throw new Error("Lỗi upload ảnh: " + uploadError.message);
+
+  const { data } = supabase.storage.from('category_avatars').getPublicUrl(filePath);
+  return data.publicUrl;
+};
+
+// ==========================================
+// CÁC HÀM DÀNH CHO ADMIN
+// ==========================================
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  role: string;
+  created_at: string;
+}
+
+// Lấy danh sách tất cả người dùng (Chỉ Admin mới gọi được hàm này thành công do RLS bảo vệ)
+export const fetchAllProfiles = async (): Promise<UserProfile[]> => {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .order('created_at', { ascending: false }); // Sắp xếp user mới nhất lên đầu
+
+  if (error) {
+    throw new Error(error.message);
+  }
+  
+  return data as UserProfile[];
 };

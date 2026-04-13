@@ -22,13 +22,17 @@ export default function CreateFlashcard() {
 
   const [modalConfig, setModalConfig] = useState({ isOpen: false, title: '', message: '', type: 'success' });
 
-  // --- TASK 1: STATE CHO TÍNH NĂNG AI GENERATOR ---
+  // --- STATE CHO TÍNH NĂNG AI GENERATOR ---
   const [showAiModal, setShowAiModal] = useState(false);
   const [aiTopic, setAiTopic] = useState('');
   const [aiCount, setAiCount] = useState<number>(10);
-  const [isGeneratingAi, setIsGeneratingAi] = useState(false); // Trạng thái chờ AI
+  
+  // 👉 THÊM STATE: Lưu lựa chọn từ Dropdown
+  const [aiSelectedCategory, setAiSelectedCategory] = useState(''); 
+  const [aiCategoryName, setAiCategoryName] = useState(''); // Chỉ dùng khi tạo mới
+  
+  const [isGeneratingAi, setIsGeneratingAi] = useState(false);
 
-  // Load danh sách thư mục khi mới vào trang
   const loadCategories = async () => {
     try {
       const list = await getCategoriesWithCount();
@@ -155,10 +159,12 @@ export default function CreateFlashcard() {
     }
   };
 
-// --- TASK 2 & 3: HÀM GỌI API AI & LƯU DATABASE (ĐÃ FIX LỖI URL 404) ---
+// --- HÀM GỌI API AI & LƯU DATABASE (PHIÊN BẢN OVER-PROMPTING) ---
   const handleGenerateAI = async () => {
-    if (!aiTopic.trim()) {
-      showModal("Thiếu thông tin", "Vui lòng nhập chủ đề bạn muốn học!", "warning");
+    const finalCategoryName = aiSelectedCategory || aiCategoryName;
+
+    if (!finalCategoryName.trim() || !aiTopic.trim()) {
+      showModal("Thiếu thông tin", "Vui lòng chọn/nhập Tên bộ từ và Mô tả chủ đề!", "warning");
       return;
     }
 
@@ -172,18 +178,20 @@ export default function CreateFlashcard() {
     }
 
     try {
-      const systemPrompt = `You are a strict JSON data generator. Output ONLY a valid JSON object. No explanations, no markdown formatting.
+      const targetCount = Number(aiCount); 
+      // 👉 OVER-PROMPTING: Bắt AI tạo dư ra hẳn 10 từ để bù đắp tỷ lệ trùng lặp cao
+      const requestCount = targetCount + 10; 
+
+      const systemPrompt = `You are a strict JSON data generator. Output ONLY a valid JSON object. No markdown.
+CRITICAL RULE: Generate EXACTLY ${requestCount} flashcards.
 REQUIRED SCHEMA:
 {
-  "categoryName": "Tên chủ đề tiếng Việt ngắn gọn",
   "cards": [
-    { "english": "word 1", "vietnamese": "nghĩa tiếng Việt 1" },
-    { "english": "word 2", "vietnamese": "nghĩa tiếng Việt 2" }
+    { "english": "word 1", "vietnamese": "nghĩa 1" }
   ]
 }`;
-      const userPrompt = `Generate exactly ${aiCount} English vocabulary flashcards about: "${aiTopic}".`;
+      const userPrompt = `Topic: "${aiTopic}". Generate EXACTLY ${requestCount} English vocabulary flashcards.`;
 
-      // 🚀 SỬA Ở ĐÂY: Đã xóa các dấu ngoặc vuông/tròn thừa, đưa về URL chuẩn xác!
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -196,7 +204,7 @@ REQUIRED SCHEMA:
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt }
           ],
-          temperature: 0.4, 
+          temperature: 0.4, // Nhích lên 0.4 1 xíu để nó có độ sáng tạo đa dạng từ vựng
           response_format: { type: "json_object" }
         })
       });
@@ -205,31 +213,37 @@ REQUIRED SCHEMA:
 
       const data = await response.json();
       let aiResponseText = data.choices[0].message.content.trim();
-      
-      console.log("🤖 Raw AI Response:", aiResponseText);
-
       aiResponseText = aiResponseText.replace(/```json/g, '').replace(/```/g, '').trim();
-
-      const parsedData = JSON.parse(aiResponseText);
       
-      const generatedCategory = parsedData.categoryName || parsedData.topic || `AI: ${aiTopic.substring(0, 15)}...`;
-      const generatedCards = parsedData.cards || parsedData.flashcards || parsedData.vocabulary || parsedData.data || [];
+      const parsedData = JSON.parse(aiResponseText);
+      let generatedCards = parsedData.cards || parsedData.flashcards || parsedData.vocabulary || parsedData.data || [];
 
       if (!Array.isArray(generatedCards) || generatedCards.length === 0) {
         throw new Error("AI không trả về mảng từ vựng nào hợp lệ.");
       }
 
-      const addedCount = await addMultipleFlashcardsToCloud(generatedCards, generatedCategory);
+      // 👉 BỎ LỆNH SLICE Ở ĐÂY. Bê nguyên mảng 20-30 từ của AI ném xuống Backend
+      // Truyền thêm biến targetCount để Backend biết điểm dừng
+      const addedCount = await addMultipleFlashcardsToCloud(generatedCards, finalCategoryName.trim(), targetCount);
 
       setShowAiModal(false);
       setAiTopic(''); 
+      setAiCategoryName('');
+      setAiSelectedCategory(''); 
       loadCategories();
 
-      showModal(
-        "Thành công! 🎉", 
-        `Trợ lý AI đã tạo bộ "${generatedCategory}" với ${addedCount} từ vựng.`, 
-        "success"
-      );
+      // Cập nhật câu thông báo cho ngầu
+      if (addedCount < targetCount && addedCount > 0) {
+        showModal(
+          "Thành công 1 phần! ⚠️", 
+          `Đã thêm ${addedCount} từ MỚI vào bộ "${finalCategoryName.trim()}". (Các từ còn lại bị trùng lặp dù AI đã cố tạo bù).`, 
+          "warning"
+        );
+      } else if (addedCount === 0) {
+        showModal("Không có từ mới!", `Tất cả từ AI tạo ra đều đã có sẵn trong bộ "${finalCategoryName.trim()}". Hãy thử mô tả chủ đề khác nhé!`, "error");
+      } else {
+        showModal("Thành công! 🎉", `Đã thêm chuẩn xác ${addedCount} từ vựng mới vào bộ "${finalCategoryName.trim()}".`, "success");
+      }
 
     } catch (error: any) {
       console.error("Lỗi Generate AI:", error);
@@ -238,7 +252,6 @@ REQUIRED SCHEMA:
       setIsGeneratingAi(false);
     }
   };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-pink-50 p-6 relative">
       <div className="max-w-md mx-auto pt-8 pb-20">
@@ -254,7 +267,6 @@ REQUIRED SCHEMA:
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           
-          {/* --- NÚT TRIGGER MỞ MODAL AI --- */}
           <button 
             onClick={() => setShowAiModal(true)}
             className="w-full mb-6 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-2xl p-4 shadow-lg shadow-indigo-200 hover:shadow-xl transition-all duration-300 active:scale-95 flex items-center justify-center gap-2 font-bold"
@@ -264,7 +276,6 @@ REQUIRED SCHEMA:
           </button>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            
             <div 
               onClick={() => setShowCategoryModal(true)}
               className="bg-purple-100/50 hover:bg-purple-100 transition-colors cursor-pointer rounded-2xl p-5 shadow-sm border border-purple-100 flex items-center gap-4 active:scale-95"
@@ -350,7 +361,7 @@ REQUIRED SCHEMA:
         </motion.div>
       </div>
 
-      {/* --- MODAL CHỌN THƯ MỤC CŨ (Giữ nguyên) --- */}
+      {/* --- MODAL CHỌN THƯ MỤC CŨ --- */}
       <AnimatePresence>
         {showCategoryModal && (
           <motion.div
@@ -415,7 +426,7 @@ REQUIRED SCHEMA:
         )}
       </AnimatePresence>
 
-      {/* --- TASK 1 & 2 & 3: MODAL TẠO FLASHCARD BẰNG AI --- */}
+      {/* --- MODAL TẠO FLASHCARD BẰNG AI --- */}
       <AnimatePresence>
         {showAiModal && (
           <motion.div
@@ -438,14 +449,49 @@ REQUIRED SCHEMA:
                 </button>
               </div>
 
-              <div className="space-y-5">
+              <div className="space-y-4">
+                
+                {/* 👉 THÊM SELECT DROPDOWN CHỌN BỘ TỪ */}
+                <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200">
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Lưu vào bộ từ vựng</label>
+                  <select
+                    value={aiSelectedCategory}
+                    onChange={(e) => setAiSelectedCategory(e.target.value)}
+                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-300 text-gray-700 font-medium cursor-pointer"
+                  >
+                    <option value="">✨ -- Tạo bộ từ mới --</option>
+                    {categoriesList.map((cat, idx) => (
+                      <option key={idx} value={cat.name}>📁 {cat.name} ({cat.count} từ)</option>
+                    ))}
+                  </select>
+
+                  {/* KỸ THUẬT CONDITIONAL RENDERING: Chỉ hiện ô gõ tên nếu chọn "Tạo bộ từ mới" */}
+                  <AnimatePresence>
+                    {aiSelectedCategory === '' && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                        animate={{ opacity: 1, height: 'auto', marginTop: 12 }}
+                        exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                      >
+                        <input
+                          type="text"
+                          value={aiCategoryName}
+                          onChange={(e) => setAiCategoryName(e.target.value)}
+                          placeholder="Nhập tên bộ từ mới (VD: Giao tiếp...)"
+                          className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-300 text-gray-700"
+                        />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
                 <div>
-                  <label className="block text-sm font-semibold text-gray-600 mb-2">Bạn muốn học về chủ đề gì?</label>
+                  <label className="block text-sm font-semibold text-gray-600 mb-2">Mô tả chủ đề (Cho AI)</label>
                   <textarea
                     value={aiTopic}
                     onChange={(e) => setAiTopic(e.target.value)}
-                    placeholder="VD: Tôi sắp đi du lịch Thái Lan, cần các từ vựng về trả giá ở chợ..."
-                    className="w-full bg-gray-50 border border-gray-200 rounded-2xl p-4 outline-none focus:ring-2 focus:ring-indigo-300 resize-none h-28 text-gray-700"
+                    placeholder="VD: Các mẫu câu và từ vựng thường dùng khi trả giá ở chợ Thái Lan..."
+                    className="w-full bg-gray-50 border border-gray-200 rounded-2xl p-4 outline-none focus:ring-2 focus:ring-indigo-300 resize-none h-24 text-gray-700"
                   />
                 </div>
 
@@ -468,11 +514,10 @@ REQUIRED SCHEMA:
                   </div>
                 </div>
 
-                {/* --- CẬP NHẬT NÚT BẤM LOADING --- */}
                 <button
                   onClick={handleGenerateAI}
                   disabled={isGeneratingAi}
-                  className="w-full mt-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-2xl py-4 shadow-lg font-bold text-lg active:scale-95 transition-all flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full mt-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-2xl py-4 shadow-lg font-bold text-lg active:scale-95 transition-all flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isGeneratingAi ? (
                     <><Loader2 className="w-6 h-6 animate-spin" /> Đang tổng hợp dữ liệu...</>

@@ -10,6 +10,7 @@ import ProtectedRoute from "../components/ProtectedRoute";
 // --- THÊM IMPORT 2 TRANG QUÊN MẬT KHẨU ---
 import ForgotPassword from "../pages/forgot-password";
 import UpdatePassword from "../pages/update-password";
+import AdminDashboard from "../pages/AdminDashboard";
 
 export const router = createBrowserRouter([
   {
@@ -26,8 +27,10 @@ export const router = createBrowserRouter([
     path: "/update-password",
     element: <UpdatePassword />,
   },
-  // -------------------------------------------------------
-
+  {
+    path: "/admin-dashboard", 
+    element: <ProtectedRoute><AdminDashboard /></ProtectedRoute>,
+  },
   {
     path: "/",
     element: <ProtectedRoute><Home /></ProtectedRoute>, // Bọc bảo vệ vòng ngoài
